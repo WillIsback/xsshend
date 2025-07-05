@@ -1,0 +1,124 @@
+{
+  "Production": {
+    "Region-A": {
+      "Public": {
+        "WEB_SERVER_01": {
+          "alias": "web01@prod-web-01.example.com",
+          "env": "PROD"
+        },
+        "WEB_SERVER_02": {
+          "alias": "web02@prod-web-01.example.com",
+          "env": "PROD"
+        },
+        "API_SERVER_01": {
+          "alias": "api01@prod-api-01.example.com",
+          "env": "PROD"
+        },
+        "DATABASE_01": {
+          "alias": "db01@prod-db-01.example.com",
+          "env": "PROD"
+        }
+      },
+      "Private": {
+        "INTERNAL_WEB_01": {
+          "alias": "iweb01@prod-internal-01.example.com",
+          "env": "PROD"
+        },
+        "INTERNAL_API_01": {
+          "alias": "iapi01@prod-internal-01.example.com",
+          "env": "PROD"
+        },
+        "BACKUP_SERVER_01": {
+          "alias": "backup01@prod-backup-01.example.com",
+          "env": "PROD"
+        }
+      }
+    },
+    "Region-B": {
+      "Public": {
+        "WEB_SERVER_03": {
+          "alias": "web03@prod-web-02.example.com",
+          "env": "PROD"
+        },
+        "API_SERVER_02": {
+          "alias": "api02@prod-api-02.example.com",
+          "env": "PROD"
+        },
+        "CACHE_SERVER_01": {
+          "alias": "cache01@prod-cache-01.example.com",
+          "env": "PROD"
+        }
+      },
+      "Private": {
+        "INTERNAL_WEB_02": {
+          "alias": "iweb02@prod-internal-02.example.com",
+          "env": "PROD"
+        },
+        "MONITORING_01": {
+          "alias": "monitor01@prod-monitor-01.example.com",
+          "env": "PROD"
+        }
+      }
+    }
+  },
+  "Staging": {
+    "Region-A": {
+      "Public": {
+        "STAGE_WEB_01": {
+          "alias": "web01@stage-web-01.example.com",
+          "env": "STAGE"
+        },
+        "STAGE_API_01": {
+          "alias": "api01@stage-api-01.example.com",
+          "env": "STAGE"
+        },
+        "STAGE_DB_01": {
+          "alias": "db01@stage-db-01.example.com",
+          "env": "STAGE"
+        }
+      },
+      "Private": {
+        "STAGE_INTERNAL_01": {
+          "alias": "internal01@stage-internal-01.example.com",
+          "env": "STAGE"
+        },
+        "STAGE_BACKUP_01": {
+          "alias": "backup01@stage-backup-01.example.com",
+          "env": "STAGE"
+        }
+      }
+    },
+    "Region-B": {
+      "Public": {
+        "STAGE_WEB_02": {
+          "alias": "web02@stage-web-02.example.com",
+          "env": "STAGE"
+        },
+        "STAGE_CACHE_01": {
+          "alias": "cache01@stage-cache-01.example.com",
+          "env": "STAGE"
+        }
+      },
+      "Private": {
+        "STAGE_MONITOR_01": {
+          "alias": "monitor01@stage-monitor-01.example.com",
+          "env": "STAGE"
+        }
+      }
+    }
+  },
+  "Development": {
+    "Local": {
+      "Services": {
+        "DEV_DATABASE": {
+          "alias": "dev@dev-db.local.example.com",
+          "env": "DEV"
+        },
+        "DEV_REDIS": {
+          "alias": "redis@dev-cache.local.example.com",
+          "env": "DEV"
+        }
+      }
+    }
+  }
+}
