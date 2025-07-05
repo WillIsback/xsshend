@@ -58,7 +58,7 @@ pub fn prompt_passphrase() -> Result<Option<String>> {
 
 /// Demande de confirmation avant le téléversement
 pub fn confirm_upload(
-    files: &[std::path::PathBuf], 
+    files: &[&Path], 
     hosts: &[(String, &HostEntry)],
     destination: &str
 ) -> Result<bool> {
