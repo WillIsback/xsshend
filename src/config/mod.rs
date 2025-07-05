@@ -1,3 +1,3 @@
 pub mod hosts;
 
-pub use hosts::{HostsConfig, HostEntry};
+pub use hosts::{HostEntry, HostsConfig};

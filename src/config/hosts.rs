@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
+use dirs::home_dir;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use dirs::home_dir;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostEntry {
@@ -26,7 +26,7 @@ impl HostsConfig {
     /// Charge la configuration depuis ~/.ssh/hosts.json
     pub fn load() -> Result<Self> {
         let config_path = Self::get_config_path()?;
-        
+
         if !config_path.exists() {
             anyhow::bail!(
                 "Fichier de configuration non trouvé: {}\n\
@@ -85,7 +85,8 @@ impl HostsConfig {
                     }
 
                     for (host_name, host_entry) in hosts {
-                        let full_name = format!("{}:{}:{}:{}", env_name, region_name, type_name, host_name);
+                        let full_name =
+                            format!("{}:{}:{}:{}", env_name, region_name, type_name, host_name);
                         results.push((full_name, host_entry));
                     }
                 }
@@ -97,7 +98,7 @@ impl HostsConfig {
 
     /// Affiche la liste des hôtes
     pub fn display_hosts(&self, env_filter: Option<&String>) {
-        println!("📋 Liste des serveurs disponibles:\n");
+        log::info!("📋 Liste des serveurs disponibles:");
 
         for (env_name, regions) in &self.environments {
             if let Some(env) = env_filter {
@@ -106,19 +107,19 @@ impl HostsConfig {
                 }
             }
 
-            println!("🌍 {}", env_name);
-            
+            log::info!("🌍 {}", env_name);
+
             for (region_name, server_types) in regions {
-                println!("  📍 {}", region_name);
-                
+                log::info!("  📍 {}", region_name);
+
                 for (type_name, hosts) in server_types {
-                    println!("    📂 {}", type_name);
-                    
+                    log::info!("    📂 {}", type_name);
+
                     for (host_name, host_entry) in hosts {
-                        println!("      🖥️  {} → {}", host_name, host_entry.alias);
+                        log::info!("      🖥️  {} → {}", host_name, host_entry.alias);
                     }
                 }
-                println!();
+                log::info!("");
             }
         }
     }
@@ -128,17 +129,17 @@ impl HostsConfig {
         self.filter_hosts(None, None, None)
     }
 
-    /// Compte le nombre total d'hôtes
-    pub fn count_hosts(&self) -> usize {
-        self.get_all_hosts().len()
-    }
+    // Unused method - commented out for optimization
+    // pub fn count_hosts(&self) -> usize {
+    //     self.get_all_hosts().len()
+    // }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_config_parsing() {
@@ -158,7 +159,7 @@ mod tests {
         "#;
 
         let config: HostsConfig = serde_json::from_str(json_content).unwrap();
-        assert_eq!(config.count_hosts(), 1);
+        assert_eq!(config.get_all_hosts().len(), 1); // Use get_all_hosts instead of count_hosts
     }
 
     #[test]
@@ -195,7 +196,7 @@ mod tests {
         "#;
 
         let config: HostsConfig = serde_json::from_str(json_content).unwrap();
-        
+
         // Test filtrage par environnement
         let prod_hosts = config.filter_hosts(Some(&"Production".to_string()), None, None);
         assert_eq!(prod_hosts.len(), 2);
@@ -206,9 +207,9 @@ mod tests {
 
         // Test filtrage combiné
         let prod_public = config.filter_hosts(
-            Some(&"Production".to_string()), 
-            None, 
-            Some(&"Public".to_string())
+            Some(&"Production".to_string()),
+            None,
+            Some(&"Public".to_string()),
         );
         assert_eq!(prod_public.len(), 1);
     }

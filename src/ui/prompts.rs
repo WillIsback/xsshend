@@ -1,7 +1,8 @@
+use crate::config::{HostEntry, HostsConfig};
 use anyhow::Result;
-use dialoguer::{theme::ColorfulTheme, MultiSelect, Select, Input, Confirm};
+use dialoguer::{Confirm, Input, MultiSelect, Select, theme::ColorfulTheme};
 use std::path::Path;
-use crate::config::{HostsConfig, HostEntry};
+use std::path::PathBuf; // Ajout pour PathBuf
 
 /// Demande à l'utilisateur de sélectionner des serveurs de manière interactive
 pub fn select_hosts(config: &HostsConfig) -> Result<Vec<(String, &HostEntry)>> {
@@ -9,7 +10,7 @@ pub fn select_hosts(config: &HostsConfig) -> Result<Vec<(String, &HostEntry)>> {
 
     // Obtenir tous les hôtes disponibles
     let all_hosts = config.get_all_hosts();
-    
+
     if all_hosts.is_empty() {
         println!("❌ Aucun serveur trouvé dans la configuration");
         return Ok(vec![]);
@@ -59,15 +60,15 @@ pub fn prompt_passphrase() -> Result<Option<String>> {
 
 /// Demande de confirmation avant le téléversement
 pub fn confirm_upload(
-    files: &[&Path], 
+    files: &[&Path],
     hosts: &[(String, &HostEntry)],
-    destination: &str
+    destination: &str,
 ) -> Result<bool> {
     println!("\n📋 Récapitulatif du téléversement:");
     println!("   Fichiers: {:?}", files);
     println!("   Destination: {}", destination);
     println!("   Serveurs: {} cibles", hosts.len());
-    
+
     for (name, entry) in hosts {
         println!("     • {} → {}", name, entry.alias);
     }
@@ -83,7 +84,7 @@ pub fn confirm_upload(
 /// Sélecteur d'environnement interactif
 pub fn select_environment(config: &HostsConfig) -> Result<Option<String>> {
     let environments: Vec<String> = config.environments.keys().cloned().collect();
-    
+
     if environments.is_empty() {
         return Ok(None);
     }
@@ -99,10 +100,56 @@ pub fn select_environment(config: &HostsConfig) -> Result<Option<String>> {
 
 /// Demande le répertoire de destination
 pub fn prompt_destination() -> Result<String> {
+    println!("💡 Variables d'environnement supportées: $HOME, $USER, $TMPDIR");
+    println!("   Exemples: $HOME/uploads, /opt/data, ${{HOME}}/documents");
+    
     let destination = Input::with_theme(&ColorfulTheme::default())
         .with_prompt("Répertoire de destination")
-        .default("/tmp/".to_string())
+        .default("$HOME/uploads/".to_string())
         .interact_text()?;
 
     Ok(destination)
+}
+
+/// Demande à l'utilisateur de sélectionner des fichiers de manière interactive
+pub fn select_files() -> Result<Vec<PathBuf>> {
+    println!("📁 Sélection interactive des fichiers\n");
+    
+    let mut files = Vec::new();
+    
+    loop {
+        let file_path: String = Input::with_theme(&ColorfulTheme::default())
+            .with_prompt("Chemin du fichier à téléverser (Entrée vide pour terminer)")
+            .allow_empty(true)
+            .interact_text()?;
+            
+        if file_path.trim().is_empty() {
+            break;
+        }
+        
+        let path = PathBuf::from(file_path.trim());
+        
+        if !path.exists() {
+            println!("⚠️  Le fichier '{}' n'existe pas", path.display());
+            let retry = Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt("Voulez-vous réessayer ?")
+                .default(true)
+                .interact()?;
+                
+            if !retry {
+                break;
+            }
+            continue;
+        }
+        
+        if !path.is_file() {
+            println!("⚠️  '{}' n'est pas un fichier", path.display());
+            continue;
+        }
+        
+        files.push(path);
+        println!("✅ Fichier ajouté: {}", files.last().unwrap().display());
+    }
+    
+    Ok(files)
 }

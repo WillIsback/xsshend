@@ -1,10 +1,10 @@
 // Module de transfert SSH avec barres de progression
+use crate::config::HostEntry;
+use crate::ssh::client::SshClient;
 use anyhow::{Context, Result};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::path::Path;
 use std::sync::Arc;
-use crate::ssh::client::SshClient;
-use crate::config::HostEntry;
 
 pub struct FileTransfer {
     multi_progress: Arc<MultiProgress>,
@@ -19,10 +19,10 @@ impl FileTransfer {
 
     /// Téléverse un fichier vers un serveur avec barre de progression
     pub fn upload_with_progress(
-        &self, 
-        local_file: &Path, 
+        &self,
+        local_file: &Path,
         remote_path: &str,
-        host_entry: &HostEntry
+        host_entry: &HostEntry,
     ) -> Result<u64> {
         // Parser l'alias pour extraire username et host
         let (username, host) = self.parse_ssh_alias(&host_entry.alias)?;
@@ -32,7 +32,12 @@ impl FileTransfer {
 
         // Obtenir la taille du fichier pour la barre de progression
         let file_size = std::fs::metadata(local_file)
-            .with_context(|| format!("Impossible de lire les métadonnées: {}", local_file.display()))?
+            .with_context(|| {
+                format!(
+                    "Impossible de lire les métadonnées: {}",
+                    local_file.display()
+                )
+            })?
             .len();
 
         // Créer la barre de progression
@@ -41,7 +46,8 @@ impl FileTransfer {
 
         // Se connecter
         pb.set_message("Connexion...");
-        client.connect()
+        client
+            .connect()
             .with_context(|| format!("Échec de connexion à {}", host_entry.alias))?;
 
         pb.set_message("Téléversement...");
@@ -52,11 +58,11 @@ impl FileTransfer {
             remote_path,
             move |bytes_written, _total_bytes| {
                 pb_clone.set_position(bytes_written);
-            }
+            },
         )?;
 
         pb.finish_with_message("✅ Terminé");
-        
+
         Ok(bytes_uploaded)
     }
 
@@ -65,7 +71,7 @@ impl FileTransfer {
         &self,
         local_file: &Path,
         remote_path: &str,
-        hosts: &'a [(String, &'a HostEntry)]
+        hosts: &'a [(String, &'a HostEntry)],
     ) -> Result<Vec<(String, Result<u64>)>> {
         use rayon::prelude::*;
 
@@ -88,14 +94,17 @@ impl FileTransfer {
             let host = alias[at_pos + 1..].to_string();
             Ok((username, host))
         } else {
-            anyhow::bail!("Format d'alias SSH invalide: '{}'. Format attendu: user@host", alias);
+            anyhow::bail!(
+                "Format d'alias SSH invalide: '{}'. Format attendu: user@host",
+                alias
+            );
         }
     }
 
     /// Crée une barre de progression formatée
     fn create_progress_bar(&self, file_size: u64, host_alias: &str) -> ProgressBar {
         let pb = self.multi_progress.add(ProgressBar::new(file_size));
-        
+
         pb.set_style(
             ProgressStyle::default_bar()
                 .template(&format!(
@@ -103,7 +112,7 @@ impl FileTransfer {
                     Self::truncate_alias(host_alias, 20)
                 ))
                 .unwrap()
-                .progress_chars("##-")
+                .progress_chars("##-"),
         );
 
         pb.set_message("Préparation...");
@@ -121,8 +130,8 @@ impl FileTransfer {
 
     /// Affiche un résumé des résultats
     pub fn display_summary(&self, results: &[(String, Result<u64>)]) {
-        println!("\n📊 Résumé du téléversement:");
-        
+        log::info!("📊 Résumé du téléversement:");
+
         let mut success_count = 0;
         let mut error_count = 0;
         let mut total_bytes = 0u64;
@@ -132,19 +141,19 @@ impl FileTransfer {
                 Ok(bytes) => {
                     success_count += 1;
                     total_bytes += bytes;
-                    println!("  ✅ {} - {} octets", host_name, Self::format_bytes(*bytes));
+                    log::info!("  ✅ {} - {} octets", host_name, Self::format_bytes(*bytes));
                 }
                 Err(e) => {
                     error_count += 1;
-                    println!("  ❌ {} - Erreur: {}", host_name, e);
+                    log::warn!("  ❌ {} - Erreur: {}", host_name, e);
                 }
             }
         }
 
-        println!("\n📈 Statistiques:");
-        println!("  Succès: {}/{}", success_count, results.len());
-        println!("  Échecs: {}", error_count);
-        println!("  Total transféré: {}", Self::format_bytes(total_bytes));
+        log::info!("📈 Statistiques:");
+        log::info!("  Succès: {}/{}", success_count, results.len());
+        log::info!("  Échecs: {}", error_count);
+        log::info!("  Total transféré: {}", Self::format_bytes(total_bytes));
     }
 
     /// Formate une taille en octets de manière lisible
@@ -173,12 +182,14 @@ mod tests {
     #[test]
     fn test_parse_ssh_alias() {
         let transfer = FileTransfer::new();
-        
+
         let (username, host) = transfer.parse_ssh_alias("user@example.com").unwrap();
         assert_eq!(username, "user");
         assert_eq!(host, "example.com");
 
-        let (username, host) = transfer.parse_ssh_alias("deploy@server.local:2222").unwrap();
+        let (username, host) = transfer
+            .parse_ssh_alias("deploy@server.local:2222")
+            .unwrap();
         assert_eq!(username, "deploy");
         assert_eq!(host, "server.local:2222");
     }
@@ -195,7 +206,7 @@ mod tests {
     fn test_truncate_alias() {
         assert_eq!(FileTransfer::truncate_alias("short", 20), "short");
         assert_eq!(
-            FileTransfer::truncate_alias("very_long_alias_name_here", 10), 
+            FileTransfer::truncate_alias("very_long_alias_name_here", 10),
             "very_lo..."
         );
     }

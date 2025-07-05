@@ -9,15 +9,31 @@ mod core;
 mod utils;
 
 use config::HostsConfig;
-use ui::prompts;
+use ui::MultiScreenTuiApp;
 use core::uploader::Uploader;
+use utils::tui_logger;
 
 fn main() -> Result<()> {
-    env_logger::init();
+    // Initialiser notre logger TUI-aware au lieu d'env_logger::init()
+    tui_logger::init_tui_aware_logger();
 
     let app = Command::new("xsshend")
         .version("0.1.0")
         .about("Outil Rust de téléversement multi-SSH avec interface TUI")
+        // Arguments globaux pour mode interactif direct
+        .arg(
+            Arg::new("interactive")
+                .long("interactive")
+                .short('i')
+                .help("Lance le mode interactif pour sélectionner fichiers et serveurs")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("files")
+                .help("Fichiers à téléverser (optionnel en mode interactif)")
+                .num_args(0..)
+                .value_name("FILE"),
+        )
         .subcommand(
             Command::new("upload")
                 .about("Téléverse des fichiers vers plusieurs serveurs SSH")
@@ -27,12 +43,6 @@ fn main() -> Result<()> {
                         .required(true)
                         .num_args(1..)
                         .value_name("FILE")
-                )
-                .arg(
-                    Arg::new("env")
-                        .long("env")
-                        .help("Environnement cible (Production, Staging, Development)")
-                        .value_name("ENV")
                 )
                 .arg(
                     Arg::new("region")
@@ -77,15 +87,48 @@ fn main() -> Result<()> {
         .subcommand(
             Command::new("list")
                 .about("Liste les serveurs disponibles")
-                .arg(
-                    Arg::new("env")
-                        .long("env")
-                        .help("Filtrer par environnement")
-                        .value_name("ENV")
-                )
         );
 
     let matches = app.get_matches();
+
+    // Si aucune sous-commande n'est fournie, lancer le TUI par défaut
+    if matches.subcommand().is_none() && !matches.get_flag("interactive") {
+        log::info!("🚀 xsshend - Interface Interactive");
+        
+        // Charger la configuration
+        let config = HostsConfig::load()?;
+        
+        // Lancer le TUI multi-écrans
+        MultiScreenTuiApp::launch(&config)?;
+        return Ok(());
+    }
+
+    // Vérifier si le mode interactif global est activé
+    if matches.get_flag("interactive") {
+        log::info!("🚀 xsshend - Mode Interactif");
+        
+        // Charger la configuration
+        let config = HostsConfig::load()?;
+        
+        // Sélectionner les fichiers (de la ligne de commande ou interactivement)
+        let files: Vec<PathBuf> = if let Some(file_args) = matches.get_many::<String>("files") {
+            file_args.map(PathBuf::from).collect()
+        } else {
+            Vec::new() // On laissera l'interface TUI gérer la sélection des fichiers
+        };
+
+        // Lancer l'interface TUI hiérarchique complète
+        let mut tui_app = MultiScreenTuiApp::new(&config)?;
+        
+        // Si des fichiers sont fournis en ligne de commande, les pré-sélectionner
+        if !files.is_empty() {
+            tui_app.set_selected_files(files)?;
+        }
+        
+        tui_app.run()?;
+        
+        return Ok(());
+    }
 
     match matches.subcommand() {
         Some(("upload", sub_matches)) => {
@@ -102,19 +145,24 @@ fn main() -> Result<()> {
             
             // Déterminer les serveurs cibles
             let target_hosts = if sub_matches.get_flag("interactive") {
-                // Mode interactif
-                prompts::select_hosts(&config)?
+                // Mode interactif - lancer l'interface TUI hiérarchique  
+                log::info!("🚀 Mode interactif - Interface TUI hiérarchique");
+                
+                let mut tui_app = MultiScreenTuiApp::new(&config)?;
+                tui_app.set_selected_files(files.clone())?;
+                tui_app.run()?;
+                
+                return Ok(());
             } else {
                 // Mode filtré par arguments
-                let env = sub_matches.get_one::<String>("env");
                 let region = sub_matches.get_one::<String>("region");
                 let server_type = sub_matches.get_one::<String>("type");
                 
-                config.filter_hosts(env, region, server_type)
+                config.filter_hosts(None, region, server_type) // env = None
             };
 
             if target_hosts.is_empty() {
-                println!("❌ Aucun serveur trouvé avec les critères spécifiés");
+                log::error!("❌ Aucun serveur trouvé avec les critères spécifiés");
                 return Ok(());
             }
 
@@ -128,22 +176,18 @@ fn main() -> Result<()> {
             if sub_matches.get_flag("dry-run") {
                 // Mode dry-run - simulation
                 uploader.dry_run(&file_refs, &target_hosts, destination)?;
-            } else if sub_matches.get_flag("interactive") {
-                // Mode interactif avec confirmation
-                uploader.upload_interactive(&file_refs, &target_hosts, destination)?;
             } else {
                 // Mode direct
                 uploader.upload_files(&file_refs, &target_hosts, destination)?;
             }
         }
-        Some(("list", sub_matches)) => {
+        Some(("list", _sub_matches)) => {
             let config = HostsConfig::load()?;
-            let env_filter = sub_matches.get_one::<String>("env");
             
-            config.display_hosts(env_filter);
+            config.display_hosts(None); // No env filter
         }
         _ => {
-            println!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
+            log::info!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
         }
     }
 

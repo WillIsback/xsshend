@@ -12,12 +12,12 @@ impl ParallelManager {
         ParallelManager { max_threads }
     }
 
-    pub fn execute_parallel<T>(&self, _tasks: Vec<T>) -> Result<()> 
-    where 
-        T: Send + Sync
+    pub fn execute_parallel<T>(&self, _tasks: Vec<T>) -> Result<()>
+    where
+        T: Send + Sync,
     {
         // TODO: Implémenter avec rayon
-        println!("Exécution parallèle avec {} threads max", self.max_threads);
+        log::debug!("Exécution parallèle avec {} threads max", self.max_threads);
         Ok(())
     }
 }

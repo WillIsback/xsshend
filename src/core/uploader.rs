@@ -128,29 +128,29 @@ impl Uploader {
         Ok(())
     }
 
-    /// Téléverse en mode interactif avec sélection utilisateur
-    pub fn upload_interactive(
-        &self,
-        files: &[&Path],
-        hosts: &[(String, &HostEntry)],
-        destination: &str
-    ) -> Result<()> {
-        use crate::ui::prompts;
+    // Unused method - commented out for optimization
+    // pub fn upload_interactive(
+    //     &self,
+    //     files: &[&Path],
+    //     hosts: &[(String, &HostEntry)],
+    //     destination: &str
+    // ) -> Result<()> {
+    //     use crate::ui::prompts;
 
-        // Demander confirmation
-        if !prompts::confirm_upload(files, hosts, destination)? {
-            println!("❌ Téléversement annulé par l'utilisateur");
-            return Ok(());
-        }
+    //     // Demander confirmation
+    //     if !prompts::confirm_upload(files, hosts, destination)? {
+    //         println!("❌ Téléversement annulé par l'utilisateur");
+    //         return Ok(());
+    //     }
 
-        // Demander la passphrase si nécessaire
-        if let Some(_passphrase) = prompts::prompt_passphrase()? {
-            println!("🔑 Passphrase SSH configurée");
-        }
+    //     // Demander la passphrase si nécessaire
+    //     if let Some(_passphrase) = prompts::prompt_passphrase()? {
+    //         println!("🔑 Passphrase SSH configurée");
+    //     }
 
-        // Procéder au téléversement normal
-        self.upload_files(files, hosts, destination)
-    }
+    //     // Procéder au téléversement normal
+    //     self.upload_files(files, hosts, destination)
+    // }
 }
 
 impl Default for Uploader {

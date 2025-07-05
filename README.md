@@ -1,18 +1,48 @@
 # 🚀 xsshend
 
-**xsshend** est un outil Rust moderne et efficace pour le **téléversement parallèle de fichiers vers multiples serveurs SSH**. Inspiré de projets comme `jless`, `xsv`, et `csvlens`, il offre une interface TUI (Terminal User Interface) élégante avec suivi en temps réel des transferts.
+**xsshend** est un outil Rust moderne et efficace pour le **téléversement parallèle de fichiers vers multiples serveurs SSH**. Il offre une interface TUI (Terminal User Interface) hiérarchique intuitive avec suivi en temps réel des transferts.
 
-## ✨ Fonctionnalités
+## ✨ Fonctionnalités principales
 
-- 🔄 **Téléversement parallèle** vers plusieurs serveurs SSH simultanément
-- 🎯 **Interface TUI moderne** avec barres de progression en temps réel
+- 🌳 **Interface hiérarchique moderne** pour la sélection de serveurs
+- 🔄 **Téléversement parallèle** vers plusieurs serveurs SSH simultanément  
+- 🎯 **Barres de progression en temps réel** pour chaque serveur
+- 🔍 **Recherche intégrée** pour filtrer rapidement les serveurs
 - 🔐 **Authentification sécurisée** par clés SSH avec support agent SSH
 - 📊 **Configuration hiérarchique** des serveurs (environnements, régions, types)
 - ⚡ **Performance optimisée** avec threading natif Rust
 - 🛡️ **Gestion d'erreurs robuste** avec rapports détaillés
-- 📁 **Support multi-fichiers** avec validation et confirmation
+- 📁 **Support multi-fichiers** avec sélection interactive
+- 🎮 **Modes d'utilisation flexibles** : interface complète, interactif, ligne de commande
 
-## 🏗️ Architecture
+## 🎮 Interface utilisateur
+
+### Interface hiérarchique de sélection
+
+L'interface organise vos serveurs en arbre navigable :
+
+```
+📂 Production
+├── 🌐 Region-A  
+│   ├── 📊 Public
+│   │   ├── ✅ WEB_SERVER_01 (web01@prod-web-01.example.com)
+│   │   └── �️ API_SERVER_01 (api01@prod-api-01.example.com)
+│   └── 📋 Private
+│       └── 🖥️ DATABASE_01 (db01@prod-db-01.example.com)
+└── 🌐 Region-B
+    └── 📊 Public
+        └── 🖥️ CACHE_SERVER_01 (cache01@prod-cache-01.example.com)
+```
+
+### Navigation intuitive
+
+- **↑↓** : Navigation dans l'arbre
+- **→ ←** : Déplier/réduire les nœuds  
+- **Espace** : Sélectionner des serveurs
+- **/** : Recherche en temps réel
+- **a** : Sélectionner tout / **c** : Vider la sélection
+
+## 🏗️ Architecture de configuration
 
 ```
 Production/
@@ -107,74 +137,137 @@ ssh-copy-id user@server.example.com
 
 ## 🎮 Utilisation
 
+### 1. Interface complète (recommandé)
+
+Lancez l'application pour accéder à l'interface hiérarchique complète :
+
+```bash
+# Interface TUI complète avec workflow guidé
+xsshend
+
+# Ou explicitément en mode interactif  
+xsshend --interactive
+```
+
+**Workflow guidé :**
+1. **Sélection des fichiers** - Navigateur de fichiers intuitif
+2. **Sélection des serveurs** - Interface hiérarchique avec recherche
+3. **Destination** - Saisie du répertoire cible
+4. **Téléversement** - Progression en temps réel
+
+### 2. Mode interactif avec fichiers pré-sélectionnés
+
+```bash
+# Avec fichiers spécifiés, interface pour serveurs et destination
+xsshend --interactive file1.txt file2.txt directory/
+
+# Ou via sous-commande
+xsshend upload file1.txt file2.txt --interactive
+```
+
+### 3. Mode ligne de commande
+
+```bash
+# Téléversement direct avec filtres
+xsshend upload file.txt --region Production --dest /opt/app/
+
+# Filtrer par région
+xsshend upload *.log --region Region-A --dest /var/log/
+
+# Filtrer par type de serveurs  
+xsshend upload config.json --type Public --dest /etc/app/
+
+# Mode simulation
+xsshend upload file.txt --region Production --dry-run
+```
+
+### 4. Lister les serveurs
+
+```bash
+# Lister les serveurs disponibles
+xsshend list
+```
+
+**Workflow interactif en 4 étapes :**
+
+1. **📁 Sélection de fichiers** - Naviguez et sélectionnez vos fichiers
+2. **🖥️ Sélection de serveurs** - Choisissez vos serveurs cibles  
+3. **📂 Saisie de destination** - Spécifiez le répertoire de destination ⭐
+4. **⚡ Transferts parallèles** - Surveillez les transferts en temps réel
+
+> ⭐ **Important** : L'étape de saisie du répertoire de destination est présente et fonctionnelle dans le TUI. 
+> Utilisez Tab/Entrée pour naviguer entre les étapes.
+
 ### Interface en Ligne de Commande
 
 ```bash
-# Téléverser un fichier vers tous les serveurs de production
-xsshend upload ./myfile.tar.gz --env Production
+# Téléverser un fichier vers tous les serveurs disponibles
+xsshend upload ./myfile.tar.gz
 
 # Téléverser vers une région spécifique
-xsshend upload ./app.jar --env Production --region Region-A
+xsshend upload ./app.jar --region Region-A
 
 # Téléverser vers des serveurs publics uniquement
-xsshend upload ./config.json --env Staging --type Public
+xsshend upload ./config.json --type Public
 
 # Téléverser plusieurs fichiers
-xsshend upload ./file1.txt ./file2.json --env Development
+xsshend upload ./file1.txt ./file2.json
 
 # Mode interactif avec sélection de serveurs
 xsshend upload ./deploy.sh --interactive
 
 # Spécifier le répertoire de destination
-xsshend upload ./app.war --env Production --dest /opt/apps/
+xsshend upload ./app.war --dest /opt/apps/
 
 # Mode verbeux avec logs détaillés
-xsshend upload ./script.sh --env Staging --verbose
+xsshend upload ./script.sh --verbose
 ```
 
-### Interface TUI
+### Interface de Progression
 
-L'interface TUI se lance automatiquement et affiche :
+L'interface de progression se lance automatiquement et affiche des barres de progression en temps réel :
 
 ```
-┌─ xsshend - Téléversement Multi-SSH ─────────────────────────┐
-│                                                             │
-│ Fichier: ./myapp.jar (2.3 MB)                              │
-│ Destinations: 8 serveurs sélectionnés                      │
-│                                                             │
-│ ┌─ Progression par serveur ─────────────────────────────┐   │
-│ │ [████████████████████████████████] web01@prod... 100%  │   │
-│ │ [██████████████████              ] api01@prod...  65%  │   │
-│ │ [████████████████████████████     ] db01@stage...  85%  │   │
-│ │ [                                 ] cache01@dev...  0%  │   │
-│ └─────────────────────────────────────────────────────────┘   │
-│                                                             │
-│ Status: 3/8 terminés - 1 erreur                            │
-│                                                             │
-│ [Q] Quitter  [P] Pause  [R] Reprendre  [L] Logs            │
-└─────────────────────────────────────────────────────────────┘
+🚀 Début du téléversement:
+   📁 1 fichier(s)
+   🖥️  3 serveur(s)
+   📂 Destination: /opt/uploads/
+
+📤 Téléversement de ./myapp.jar vers /opt/uploads/myapp.jar...
+   Taille: 2.3 MB
+
+web01@prod-web-01... [████████████████████████████████] 2.3MB/2.3MB (00:02)
+api01@prod-api-01... [██████████████████              ] 1.5MB/2.3MB (00:01)
+db01@stage-db-01.... [████████████████████████████     ] 2.1MB/2.3MB (00:00)
+
+📊 Résumé du téléversement:
+  ✅ WEB_SERVER_01 - 2,359,296 octets
+  ✅ API_SERVER_01 - 2,359,296 octets  
+  ✅ DATABASE_01 - 2,359,296 octets
+
+✅ Téléversement terminé avec succès!
 ```
 
 ### Options Avancées
 
 ```bash
 # Exclure certains serveurs
-xsshend upload ./file.txt --env Production --exclude WEB_SERVER_01,API_SERVER_02
+xsshend upload ./file.txt --exclude WEB_SERVER_01,API_SERVER_02
 
 # Timeout personnalisé
-xsshend upload ./largefile.bin --env Production --timeout 300
+xsshend upload ./largefile.bin --timeout 300
 
 # Nombre max de connexions parallèles
-xsshend upload ./file.txt --env Production --max-parallel 5
+xsshend upload ./file.txt --max-parallel 5
 
 # Mode dry-run (simulation)
-xsshend upload ./file.txt --env Production --dry-run
+xsshend upload ./file.txt --dry-run
 
 # Forcer l'écrasement de fichiers existants
-xsshend upload ./file.txt --env Production --force
+xsshend upload ./file.txt --force
 
 # Utiliser SCP au lieu de SFTP
-xsshend upload ./file.txt --env Production --protocol scp
+xsshend upload ./file.txt --protocol scp
 ```
 
 ## 🔧 Stack Technologique
@@ -191,6 +284,8 @@ xsshend upload ./file.txt --env Production --protocol scp
 - **`rpassword`** - Saisie sécurisée de passphrase
 - **`anyhow`** - Gestion d'erreurs ergonomique
 
+> 📋 **Note :** Une interface TUI complète avec contrôles interactifs (pause, reprise, logs) est prévue pour la version 0.2.0
+
 ### Architecture du Code
 
 ```
@@ -198,27 +293,25 @@ src/
 ├── main.rs              # Point d'entrée et CLI
 ├── config/
 │   ├── mod.rs
-│   ├── hosts.rs         # Parsing hosts.json
-│   └── ssh.rs           # Configuration SSH
+│   └── hosts.rs         # Parsing hosts.json
 ├── ssh/
 │   ├── mod.rs
 │   ├── client.rs        # Client SSH/SFTP
-│   ├── auth.rs          # Authentification
-│   └── transfer.rs      # Logique de transfert
+│   ├── auth.rs          # Authentification (placeholder)
+│   └── transfer.rs      # Transfert avec barres de progression
 ├── ui/
 │   ├── mod.rs
-│   ├── tui.rs           # Interface TUI
-│   ├── progress.rs      # Barres de progression
 │   └── prompts.rs       # Dialogues interactifs
 ├── core/
 │   ├── mod.rs
 │   ├── uploader.rs      # Orchestrateur principal
-│   ├── parallel.rs      # Gestion parallélisme
+│   ├── parallel.rs      # Gestion parallélisme (placeholder)
 │   └── validator.rs     # Validation fichiers/serveurs
 └── utils/
     ├── mod.rs
+    ├── env_expansion.rs # Expansion variables d'environnement
     ├── errors.rs        # Types d'erreurs
-    └── logger.rs        # Système de logs
+    └── logger.rs        # Système de logs (placeholder)
 ```
 
 ## 🛠️ Développement
@@ -321,43 +414,34 @@ cd test/
 
 **Résultat attendu :** 9/9 tests passent = prêt pour production !
 
-## 🚦 Exemples d'Usage
+## 📖 Documentation
 
-### Scénario 1: Déploiement Application Web
+Consultez la documentation complète dans le répertoire `docs/` :
 
-```bash
-# Déployer sur tous les serveurs web de production
-xsshend upload ./webapp.war --env Production --filter "WEB_SERVER_*" --dest /opt/tomcat/webapps/
+- **[Guide d'utilisation](docs/usage.md)** - Utilisation détaillée de l'interface hiérarchique
+- **[Configuration](docs/configuration.md)** - Configuration avancée et personnalisation
 
-# Vérifier le déploiement
-xsshend exec "ls -la /opt/tomcat/webapps/" --env Production --filter "WEB_SERVER_*"
-```
+### Liens rapides
 
-### Scénario 2: Mise à jour Configuration
+- **Navigation dans l'interface** : [docs/usage.md#navigation-dans-linterface](docs/usage.md#navigation-dans-linterface)
+- **Configuration des serveurs** : [docs/configuration.md#fichier-de-configuration-principal](docs/configuration.md#fichier-de-configuration-principal)
+- **Raccourcis et alias** : [docs/configuration.md#raccourcis-et-personnalisation](docs/configuration.md#raccourcis-et-personnalisation)
 
-```bash
-# Déployer configuration sur tous les environnements
-xsshend upload ./config.json --env Production,Staging --dest /etc/myapp/
+## 🔧 Configuration avancée
 
-# Redémarrer les services après déploiement
-xsshend exec "systemctl restart myapp" --env Production,Staging
-```
+Voir le [guide de configuration](docs/configuration.md) pour :
 
-### Scénario 3: Backup et Synchronisation
+- Organisation optimale de l'infrastructure
+- Variables d'environnement et personnalisation  
+- Raccourcis shell et scripts de déploiement
+- Résolution des problèmes courants
 
-```bash
-# Synchroniser scripts de backup
-xsshend upload ./backup-scripts/ --env Production --type Private --dest /opt/backup/
+## � Dépannage
 
-# Téléverser avec vérification d'intégrité
-xsshend upload ./important-data.tar.gz --env Production --verify-checksum
-```
+### Problèmes courants
 
-## 🐛 Dépannage
+#### Erreur: "Permission denied (publickey)"
 
-### Problèmes Courants
-
-**Erreur: "Permission denied (publickey)"**
 ```bash
 # Vérifier la configuration SSH
 ssh -v user@server.example.com
@@ -369,34 +453,36 @@ ssh-add -l
 ssh-add ~/.ssh/id_rsa
 ```
 
-**Erreur: "hosts.json not found"**
+#### Erreur: "hosts.json not found"
+
 ```bash
 # Créer le fichier de configuration
 mkdir -p ~/.ssh
-cp examples/hosts.json ~/.ssh/hosts.json
-# Éditer avec vos serveurs
+# Créer et éditer avec vos serveurs
+nano ~/.ssh/hosts.json
 ```
 
-**Performances lentes**
+#### Performances lentes
+
 ```bash
-# Réduire le parallélisme
-xsshend upload file.txt --env Production --max-parallel 3
-
-# Utiliser SCP au lieu de SFTP
-xsshend upload file.txt --env Production --protocol scp
+# Réduire le parallélisme via variable d'environnement
+export XSSHEND_MAX_PARALLEL=5
+xsshend upload largefile.zip
 ```
 
-### Logs et Debug
+Consultez le [guide de configuration](docs/configuration.md#dépannage) pour plus de solutions.
+
+## 📝 Logs et Debug
 
 ```bash
 # Mode verbeux
-RUST_LOG=debug xsshend upload file.txt --env Production --verbose
+RUST_LOG=debug xsshend upload file.txt --region Production
 
-# Logs dans un fichier
-xsshend upload file.txt --env Production --log-file /tmp/xsshend.log
+# Affichage détaillé des transferts
+xsshend upload file.txt --region Production --verbose
 
 # Mode trace pour debugging SSH
-RUST_LOG=ssh2=trace xsshend upload file.txt --env Production
+RUST_LOG=ssh2=trace xsshend upload file.txt --region Production
 ```
 
 ## 🤝 Contribution

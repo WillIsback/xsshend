@@ -1,9 +1,8 @@
 /target
 .github/copilot-instructions.md
-/scripts
 
-# Dossier de test - exclure données générées mais inclure scripts
-/test/data/
-/test/.ssh/
-/test/configs/
-/test/multipass/*.processed
+# Fichiers temporaires
+*.tmp
+*.temp
+hosts_*.json
+*.backup

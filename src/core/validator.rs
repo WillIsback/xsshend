@@ -1,7 +1,7 @@
 // Module de validation des fichiers et serveurs
-use anyhow::{Result, Context};
-use std::path::Path;
+use anyhow::{Context, Result};
 use std::fs;
+use std::path::Path;
 
 pub struct Validator;
 
@@ -13,7 +13,10 @@ impl Validator {
         }
 
         if !file_path.is_file() {
-            anyhow::bail!("Le chemin ne pointe pas vers un fichier: {}", file_path.display());
+            anyhow::bail!(
+                "Le chemin ne pointe pas vers un fichier: {}",
+                file_path.display()
+            );
         }
 
         // Vérifier la lisibilité
@@ -33,9 +36,13 @@ impl Validator {
 
     /// Obtient la taille d'un fichier en octets
     pub fn get_file_size(file_path: &Path) -> Result<u64> {
-        let metadata = fs::metadata(file_path)
-            .with_context(|| format!("Impossible de lire les métadonnées: {}", file_path.display()))?;
-        
+        let metadata = fs::metadata(file_path).with_context(|| {
+            format!(
+                "Impossible de lire les métadonnées: {}",
+                file_path.display()
+            )
+        })?;
+
         Ok(metadata.len())
     }
 
@@ -61,8 +68,8 @@ impl Validator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_file_validation() {
@@ -84,6 +91,9 @@ mod tests {
         assert_eq!(Validator::format_file_size(1024), "1.0 KB");
         assert_eq!(Validator::format_file_size(1536), "1.5 KB");
         assert_eq!(Validator::format_file_size(1024 * 1024), "1.0 MB");
-        assert_eq!(Validator::format_file_size(2 * 1024 * 1024 * 1024), "2.0 GB");
+        assert_eq!(
+            Validator::format_file_size(2 * 1024 * 1024 * 1024),
+            "2.0 GB"
+        );
     }
 }
