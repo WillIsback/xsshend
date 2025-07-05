@@ -10,6 +10,7 @@ mod utils;
 
 use config::HostsConfig;
 use ui::prompts;
+use core::uploader::Uploader;
 
 fn main() -> Result<()> {
     env_logger::init();
@@ -95,32 +96,45 @@ fn main() -> Result<()> {
                 .collect();
             
             println!("🚀 xsshend - Téléversement Multi-SSH");
-            println!("Fichiers à téléverser: {:?}", files);
-
+            
             // Charger la configuration
             let config = HostsConfig::load()?;
             
-            if sub_matches.get_flag("interactive") {
+            // Déterminer les serveurs cibles
+            let target_hosts = if sub_matches.get_flag("interactive") {
                 // Mode interactif
-                let selected_hosts = prompts::select_hosts(&config)?;
-                println!("Serveurs sélectionnés: {:?}", selected_hosts);
+                prompts::select_hosts(&config)?
             } else {
                 // Mode filtré par arguments
                 let env = sub_matches.get_one::<String>("env");
                 let region = sub_matches.get_one::<String>("region");
                 let server_type = sub_matches.get_one::<String>("type");
                 
-                let filtered_hosts = config.filter_hosts(env, region, server_type);
-                println!("Serveurs trouvés: {:?}", filtered_hosts);
-            }
+                config.filter_hosts(env, region, server_type)
+            };
 
-            if sub_matches.get_flag("dry-run") {
-                println!("🔍 Mode dry-run activé - aucun transfert réel");
+            if target_hosts.is_empty() {
+                println!("❌ Aucun serveur trouvé avec les critères spécifiés");
                 return Ok(());
             }
 
-            // TODO: Implémenter la logique de téléversement
-            println!("✅ Téléversement terminé (fonctionnalité à implémenter)");
+            // Destination et fichiers
+            let destination = sub_matches.get_one::<String>("dest").unwrap();
+            let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
+
+            // Créer l'uploader
+            let uploader = Uploader::new();
+
+            if sub_matches.get_flag("dry-run") {
+                // Mode dry-run - simulation
+                uploader.dry_run(&file_refs, &target_hosts, destination)?;
+            } else if sub_matches.get_flag("interactive") {
+                // Mode interactif avec confirmation
+                uploader.upload_interactive(&file_refs, &target_hosts, destination)?;
+            } else {
+                // Mode direct
+                uploader.upload_files(&file_refs, &target_hosts, destination)?;
+            }
         }
         Some(("list", sub_matches)) => {
             let config = HostsConfig::load()?;

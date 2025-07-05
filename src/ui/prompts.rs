@@ -1,5 +1,6 @@
 use anyhow::Result;
 use dialoguer::{theme::ColorfulTheme, MultiSelect, Select, Input, Confirm};
+use std::path::Path;
 use crate::config::{HostsConfig, HostEntry};
 
 /// Demande à l'utilisateur de sélectionner des serveurs de manière interactive
