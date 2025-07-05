@@ -1,6 +1,35 @@
 # 🚀 xsshend
 
+[![Crates.io](https://img.shields.io/crates/v/xsshend.svg)](https://crates.io/crates/xsshend)
+[![Documentation](https://docs.rs/xsshend/badge.svg)](https://docs.rs/xsshend)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-2024%2B-orange.svg)](https://www.rust-lang.org)
+
 **xsshend** est un outil Rust moderne et efficace pour le **téléversement parallèle de fichiers vers multiples serveurs SSH**. Il offre une interface TUI (Terminal User Interface) hiérarchique intuitive avec suivi en temps réel des transferts.
+
+## 🔧 Installation
+
+### Via Cargo (recommandé)
+
+```bash
+cargo install xsshend
+```
+
+### Depuis les sources
+
+```bash
+git clone https://github.com/WillIsback/xsshend.git
+cd xsshend
+cargo install --path .
+```
+
+## 📚 Documentation
+
+- [**Documentation complète**](https://willisback.github.io/xsshend/)
+- [Guide d'utilisation](docs/usage.md)
+- [Configuration automatique](docs/auto-configuration.md)
+- [Gestion des clés SSH](docs/ssh-key-management.md)
+- [Optimisation](docs/optimization.md)
 
 ## ✨ Fonctionnalités principales
 
@@ -174,18 +203,82 @@ xsshend upload file.txt --region Production --dest /opt/app/
 # Filtrer par région
 xsshend upload *.log --region Region-A --dest /var/log/
 
-# Filtrer par type de serveurs  
-xsshend upload config.json --type Public --dest /etc/app/
+# Filtrage par environnement (nouveau!)
+xsshend upload ./config.json --env Production
+xsshend upload ./staging-config.json --env Staging
 
-# Mode simulation
-xsshend upload file.txt --region Production --dry-run
+# Filtrage combiné environnement + région
+xsshend upload ./regional-config.json --env Production --region Region-A
+
+# Filtrage combiné environnement + type
+xsshend upload ./app.war --env Production --type Public
 ```
 
-### 4. Lister les serveurs
+### 4. Lister les serveurs avec étiquettes hiérarchiques
 
 ```bash
-# Lister les serveurs disponibles
+# Lister les serveurs disponibles avec étiquettes CLI
 xsshend list
+# ou
+xsshend -l
+```
+
+**Exemple de sortie enrichie :**
+```
+🔍 Liste des cibles SSH disponibles:
+
+📁 Production (--env Production)
+  📂 Region-A (--region Region-A)
+    📂 Public (--type Public)
+      🖥️  WEB_SERVER_01 → web01@prod-web-01.example.com (PROD)
+      🖥️  API_SERVER_01 → api01@prod-api-01.example.com (PROD)
+    📂 Private (--type Private)
+      �️  DATABASE_01 → db01@prod-db-01.example.com (PROD)
+
+📁 Staging (--env Staging)
+  📂 Region-A (--region Region-A)
+    📂 Public (--type Public)
+      🖥️  STAGE_WEB_01 → web01@stage-web-01.example.com (STAGE)
+
+📊 Total: 4 cibles disponibles
+
+�💡 Exemples d'utilisation:
+   xsshend upload --env Production file.txt
+   xsshend upload --env Staging --region Region-A file.txt
+   xsshend upload --region Region-A --type Public file.txt
+```
+
+### 5. Gestion robuste des serveurs déconnectés
+
+xsshend gère maintenant gracieusement les serveurs inaccessibles :
+
+```bash
+# Vérification de connectivité avant l'interface TUI
+xsshend --online-only
+
+# Les timeouts de connexion sont configurés pour éviter les blocages
+# Les erreurs de connexion sont logguées mais n'interrompent pas les autres transferts
+   xsshend upload --region Region-A --type Public file.txt
+```
+
+### 5. Modes de filtrage avancés
+
+```bash
+# Filtrage par environnement complet
+xsshend upload file.txt --env Production --dest /opt/app/
+
+# Filtrage par environnement et région
+xsshend upload file.txt --env Staging --region Region-A --dest /var/log/
+
+# Filtrage par environnement et type de serveurs
+xsshend upload config.json --env Production --type Public --dest /etc/app/
+
+# Filtrage traditionnel par région ou type uniquement
+xsshend upload *.log --region Region-A --dest /var/log/
+xsshend upload config.json --type Public --dest /etc/app/
+
+# Vérification de connectivité avant transfert
+xsshend --online-only
 ```
 
 **Workflow interactif en 4 étapes :**
@@ -204,11 +297,20 @@ xsshend list
 # Téléverser un fichier vers tous les serveurs disponibles
 xsshend upload ./myfile.tar.gz
 
+# Téléverser vers un environnement spécifique
+xsshend upload ./app.jar --env Production
+
 # Téléverser vers une région spécifique
 xsshend upload ./app.jar --region Region-A
 
 # Téléverser vers des serveurs publics uniquement
 xsshend upload ./config.json --type Public
+
+# Téléverser vers un environnement ET une région
+xsshend upload ./config.json --env Staging --region Region-A
+
+# Téléverser vers un environnement ET un type
+xsshend upload ./app.war --env Production --type Public
 
 # Téléverser plusieurs fichiers
 xsshend upload ./file1.txt ./file2.json
@@ -221,6 +323,9 @@ xsshend upload ./app.war --dest /opt/apps/
 
 # Mode verbeux avec logs détaillés
 xsshend upload ./script.sh --verbose
+
+# Vérifier la connectivité avant le TUI (n'affiche que les serveurs en ligne)
+xsshend --online-only
 ```
 
 ### Interface de Progression
@@ -460,6 +565,22 @@ ssh-add ~/.ssh/id_rsa
 mkdir -p ~/.ssh
 # Créer et éditer avec vos serveurs
 nano ~/.ssh/hosts.json
+```
+
+#### Serveurs déconnectés ou inaccessibles
+
+```bash
+# Utiliser --online-only pour pré-filtrer les serveurs accessibles
+xsshend --online-only
+
+# Les timeouts de connexion sont configurés automatiquement (5 secondes par défaut)
+# En cas d'échec de connexion, xsshend continue avec les autres serveurs
+
+# Vérifier la connectivité manuellement
+ssh -o ConnectTimeout=5 user@server.example.com
+
+# Logs d'erreur détaillés pour identifier les problèmes
+RUST_LOG=debug xsshend upload file.txt --env Production
 ```
 
 #### Performances lentes

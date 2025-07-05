@@ -26,14 +26,6 @@ impl Validator {
         Ok(())
     }
 
-    /// Valide une liste de fichiers
-    pub fn validate_files(files: &[&Path]) -> Result<()> {
-        for file in files {
-            Self::validate_file(file)?;
-        }
-        Ok(())
-    }
-
     /// Obtient la taille d'un fichier en octets
     pub fn get_file_size(file_path: &Path) -> Result<u64> {
         let metadata = fs::metadata(file_path).with_context(|| {

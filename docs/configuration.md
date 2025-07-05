@@ -119,6 +119,24 @@ Le fichier de configuration se trouve dans `~/.ssh/hosts.json` et définit votre
         }
       }
     }
+  },
+  "Docker-Test": {
+    "Local": {
+      "Containers": {
+        "SSH_TEST_01": {
+          "alias": "root@localhost:2222",
+          "env": "TEST"
+        },
+        "SSH_TEST_02": {
+          "alias": "root@localhost:2223", 
+          "env": "TEST"
+        },
+        "SSH_TEST_03": {
+          "alias": "root@localhost:2224",
+          "env": "TEST"
+        }
+      }
+    }
   }
 }
 ```

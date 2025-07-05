@@ -2,12 +2,9 @@ use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{
     collections::HashMap,
     io,
@@ -16,12 +13,14 @@ use std::{
     time::Duration,
 };
 
-use crate::config::{HostEntry, HostsConfig};
-use crate::core::uploader::Uploader;
 use super::{
     app_state::{AppScreen, AppState},
     multi_screen_handler::MultiScreenEventHandler,
-    screens::{FileSelectionScreen, ServerSelectionScreen, DestinationInputScreen, ProgressScreen},
+    screens::{DestinationInputScreen, FileSelectionScreen, ProgressScreen, ServerSelectionScreen},
+};
+use crate::{
+    config::{HostEntry, HostsConfig},
+    utils::tui_logger::{TuiLogger, create_shared_log_buffer},
 };
 
 /// Application TUI multi-écrans principale
@@ -31,18 +30,59 @@ pub struct MultiScreenTuiApp {
 
 impl MultiScreenTuiApp {
     pub fn new(config: &HostsConfig) -> Result<Self> {
-        let available_hosts: HashMap<String, HostEntry> = config.get_all_hosts()
+        let _available_hosts: HashMap<String, HostEntry> = config
+            .get_all_hosts()
             .into_iter()
             .map(|(name, entry)| (name, entry.clone()))
             .collect();
 
-        let mut app_state = AppState::new(available_hosts);
-        
+        // Créer un buffer de logs partagé pour capturer tous les logs du système
+        let log_buffer = create_shared_log_buffer();
+
+        // Initialiser le logger TUI pour capturer tous les logs (si possible)
+        if !TuiLogger::try_init(Arc::clone(&log_buffer)) {
+            // Logger déjà initialisé, pas de problème
+        }
+
+        let mut app_state = AppState::new_with_log_buffer(log_buffer);
+
         // Initialiser le sélecteur hiérarchique
         app_state.init_hierarchical_selector(config)?;
-        
+
         let state = Arc::new(Mutex::new(app_state));
-        
+
+        Ok(Self { state })
+    }
+
+    /// Crée une nouvelle instance avec filtrage par connectivité
+    pub fn new_with_connectivity_check(config: &HostsConfig, timeout_secs: u64) -> Result<Self> {
+        log::info!("🔍 Vérification de la connectivité des serveurs...");
+
+        let online_hosts = config.get_online_hosts_sync(timeout_secs);
+
+        if online_hosts.is_empty() {
+            log::warn!("⚠️ Aucun serveur en ligne détecté");
+        } else {
+            log::info!("✅ {} serveurs en ligne détectés", online_hosts.len());
+        }
+
+        // Créer un buffer de logs partagé pour capturer tous les logs du système
+        let log_buffer = create_shared_log_buffer();
+
+        // Initialiser le logger TUI pour capturer tous les logs (si possible)
+        if !TuiLogger::try_init(Arc::clone(&log_buffer)) {
+            // Logger déjà initialisé, pas de problème
+        }
+
+        let _available_hosts: HashMap<String, HostEntry> = online_hosts.into_iter().collect();
+
+        let mut app_state = AppState::new_with_log_buffer(log_buffer);
+
+        // Initialiser le sélecteur hiérarchique avec seulement les hosts en ligne
+        app_state.init_hierarchical_selector_filtered(config, timeout_secs)?;
+
+        let state = Arc::new(Mutex::new(app_state));
+
         Ok(Self { state })
     }
 
@@ -116,12 +156,14 @@ impl MultiScreenTuiApp {
                 }
 
                 // Démarrer les transferts si on passe à l'écran de progression
-                if matches!(state.current_screen, AppScreen::UploadProgress) && upload_handle.is_none() {
+                if matches!(state.current_screen, AppScreen::UploadProgress)
+                    && upload_handle.is_none()
+                {
                     let state_clone = Arc::clone(&upload_state);
                     let files = state.selected_files.clone();
                     let hosts = state.selected_hosts.clone();
                     let destination = state.destination.clone();
-                    
+
                     upload_handle = Some(thread::spawn(move || {
                         let state_ref = Arc::clone(&state_clone);
                         if let Err(e) = Self::run_uploads(state_clone, files, hosts, destination) {
@@ -138,192 +180,174 @@ impl MultiScreenTuiApp {
                 let mut state = self.state.lock().unwrap();
                 MultiScreenEventHandler::handle_event(&mut state, event)?;
             }
+
+            // Synchroniser régulièrement les logs depuis le buffer partagé
+            {
+                let mut state = self.state.lock().unwrap();
+                state.sync_logs_from_shared_buffer();
+            }
         }
 
         Ok(())
     }
 
-    /// Lance les transferts en parallèle dans un thread séparé
+    /// Lance les transferts en parallèle dans un thread séparé avec pool SSH moderne
     fn run_uploads(
         state: Arc<Mutex<AppState>>,
         files: Vec<std::path::PathBuf>,
         hosts: Vec<(String, HostEntry)>,
         destination: String,
     ) -> Result<()> {
+        use crate::core::parallel::{ProgressCallback, TransferStatus};
         use crate::core::uploader::Uploader;
-        use rayon::prelude::*;
+        use std::sync::Arc;
 
         {
             let mut state_lock = state.lock().unwrap();
-            state_lock.add_log("🚀 Démarrage des transferts...");
+            state_lock.add_log("🚀 Démarrage des transferts avec pool SSH...");
         }
 
-        // Créer l'uploader
-        let uploader = Uploader::new();
-        let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
+        // Créer l'uploader avec pool SSH intégré
+        let mut uploader = Uploader::new();
 
-        // Exécuter les transferts en parallèle avec rayon
-        hosts.par_iter().for_each(|(host_name, host_entry)| {
-            let state_clone = Arc::clone(&state);
-            
-            // Vérifier si on doit continuer
+        // IMPORTANT: Initialiser le pool SSH UNE SEULE FOIS pour tous les fichiers
+        let host_tuples: Vec<(String, &HostEntry)> = hosts
+            .iter()
+            .map(|(name, entry)| (name.clone(), entry))
+            .collect();
+
+        // Initialiser le pool avec tous les serveurs une seule fois
+        if let Err(e) = uploader.initialize_ssh_pool(&host_tuples) {
+            let mut state_lock = state.lock().unwrap();
+            state_lock.add_log(&format!("❌ Erreur initialisation pool SSH: {}", e));
+            return Err(e);
+        }
+
+        {
+            let mut state_lock = state.lock().unwrap();
+            state_lock.add_log(&format!(
+                "✅ Pool SSH initialisé pour {} serveur(s)",
+                hosts.len()
+            ));
+        }
+
+        // Lancer les transferts fichier par fichier avec callback
+        for (file_index, file) in files.iter().enumerate() {
+            // Arrêter si demandé
             {
-                let state_lock = state_clone.lock().unwrap();
+                let state_lock = state.lock().unwrap();
                 if state_lock.should_quit {
-                    return;
+                    break;
                 }
             }
 
-            // Mettre à jour le statut
+            let file_name = file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("fichier");
+
+            // Créer un callback spécifique pour ce fichier
+            let file_progress_callback: ProgressCallback = {
+                let state_clone = Arc::clone(&state);
+                let file_name = file_name.to_string();
+                Arc::new(
+                    move |server_name: &str, bytes_transferred: u64, status: TransferStatus| {
+                        if let Ok(mut app_state) = state_clone.lock() {
+                            // Utiliser la méthode avec informations de fichier
+                            app_state.update_progress_with_file(
+                                server_name,
+                                bytes_transferred,
+                                status.clone(),
+                                Some(&file_name),
+                            );
+
+                            // Log détaillé selon le statut
+                            match &status {
+                                TransferStatus::Connecting => {
+                                    app_state.add_log(&format!(
+                                        "🔗 {} ← {} : Connexion SSH...",
+                                        server_name, file_name
+                                    ));
+                                }
+                                TransferStatus::Transferring => {
+                                    app_state.add_log(&format!(
+                                        "📤 {} ← {} : Transfert en cours...",
+                                        server_name, file_name
+                                    ));
+                                }
+                                TransferStatus::Completed => {
+                                    app_state.add_log(&format!(
+                                        "✅ {} ← {} : Transfert terminé ({} octets)",
+                                        server_name, file_name, bytes_transferred
+                                    ));
+                                }
+                                TransferStatus::Failed(err) => {
+                                    app_state.add_log(&format!(
+                                        "❌ {} ← {} : Erreur - {}",
+                                        server_name, file_name, err
+                                    ));
+                                }
+                                TransferStatus::Pending => {
+                                    app_state.add_log(&format!(
+                                        "⏳ {} ← {} : En attente...",
+                                        server_name, file_name
+                                    ));
+                                }
+                            }
+                        }
+                    },
+                )
+            };
+
             {
-                let mut state_lock = state_clone.lock().unwrap();
-                state_lock.update_progress(
-                    host_name,
-                    0,
-                    crate::ui::tui::TransferStatus::Connecting,
-                );
+                let mut state_lock = state.lock().unwrap();
+                state_lock.add_log(&format!(
+                    "📁 Traitement fichier {}/{}: {}",
+                    file_index + 1,
+                    files.len(),
+                    file_name
+                ));
             }
 
-            // Simuler le transfert ou faire le vrai transfert
-            match Self::transfer_to_host(&uploader, &file_refs, host_entry, &destination, &state_clone, host_name) {
+            // Upload avec callback spécifique au fichier
+            match uploader.upload_single_file_with_initialized_pool(
+                file.as_path(),
+                &host_tuples,
+                &destination,
+                Some(file_progress_callback),
+            ) {
                 Ok(_) => {
-                    let mut state_lock = state_clone.lock().unwrap();
-                    let total_size = state_lock.transfers.get(host_name)
-                        .map(|t| t.total_bytes)
-                        .unwrap_or(0);
-                    state_lock.update_progress(
-                        host_name,
-                        total_size,
-                        crate::ui::tui::TransferStatus::Completed,
-                    );
-                    state_lock.add_log(&format!("✅ {} : Transfert terminé avec succès", host_name));
+                    let mut state_lock = state.lock().unwrap();
+                    state_lock.add_log(&format!(
+                        "🎯 Fichier {} traité sur tous les serveurs",
+                        file_name
+                    ));
+                    // Incrémenter le compteur de fichiers complétés
+                    state_lock.increment_completed_files();
                 }
                 Err(e) => {
-                    let mut state_lock = state_clone.lock().unwrap();
-                    state_lock.set_error(host_name, e.to_string());
+                    let mut state_lock = state.lock().unwrap();
+                    state_lock.add_log(&format!("❌ Erreur fichier {}: {}", file_name, e));
+                    // Même en cas d'erreur, considérer le fichier comme traité pour le compteur
+                    state_lock.increment_completed_files();
                 }
             }
-        });
+        }
 
         {
             let mut state_lock = state.lock().unwrap();
             state_lock.add_log("🏁 Tous les transferts terminés");
         }
 
-        Ok(())
-    }
-
-    /// Transfert vers un host spécifique avec simulation ou vrai transfert
-    fn transfer_to_host(
-        uploader: &Uploader,
-        files: &[&std::path::Path],
-        host_entry: &HostEntry,
-        destination: &str,
-        state: &Arc<Mutex<AppState>>,
-        host_name: &str,
-    ) -> Result<()> {
-        // Déterminer s'il faut simuler ou faire un vrai transfert
-        let should_simulate = host_entry.alias.contains("example") || 
-                             host_entry.alias.contains("localhost") ||
-                             host_entry.alias.contains("127.0.0.1");
-
-        if should_simulate {
-            // Simulation rapide pour les hosts d'exemple
-            Self::simulate_transfer(files, state, host_name)?;
+        // Nettoyer les connexions SSH à la fin de tous les transferts
+        if let Err(e) = uploader.cleanup_ssh_connections() {
+            let mut state_lock = state.lock().unwrap();
+            state_lock.add_log(&format!("⚠️ Avertissement nettoyage connexions: {}", e));
         } else {
-            // Vrai transfert
-            Self::real_transfer(uploader, files, host_entry, destination, state, host_name)?;
-        }
-
-        Ok(())
-    }
-
-    /// Simulation de transfert pour les tests
-    fn simulate_transfer(
-        files: &[&std::path::Path],
-        state: &Arc<Mutex<AppState>>,
-        host_name: &str,
-    ) -> Result<()> {
-        // Calculer la taille totale
-        let total_size: u64 = files.iter()
-            .filter_map(|f| std::fs::metadata(f).ok())
-            .map(|m| m.len())
-            .sum();
-
-        // Simuler le transfert progressif
-        {
             let mut state_lock = state.lock().unwrap();
-            state_lock.update_progress(host_name, 0, crate::ui::tui::TransferStatus::Transferring);
-        }
-
-        let steps = 20;
-        for i in 0..=steps {
-            // Vérifier si on doit arrêter
-            {
-                let state_lock = state.lock().unwrap();
-                if state_lock.should_quit || state_lock.is_paused {
-                    break;
-                }
-            }
-
-            let progress = (total_size * i as u64) / steps as u64;
-            {
-                let mut state_lock = state.lock().unwrap();
-                state_lock.update_progress(host_name, progress, crate::ui::tui::TransferStatus::Transferring);
-            }
-            
-            thread::sleep(Duration::from_millis(100));
+            state_lock.add_log("🧹 Connexions SSH nettoyées");
         }
 
         Ok(())
-    }
-
-    /// Vrai transfert SSH
-    fn real_transfer(
-        uploader: &Uploader,
-        files: &[&std::path::Path],
-        host_entry: &HostEntry,
-        destination: &str,
-        state: &Arc<Mutex<AppState>>,
-        host_name: &str,
-    ) -> Result<()> {
-        // Parser l'alias pour obtenir username et hostname
-        let parts: Vec<&str> = host_entry.alias.split('@').collect();
-        if parts.len() != 2 {
-            return Err(anyhow::anyhow!("Format d'alias invalide: {}", host_entry.alias));
-        }
-
-        let username = parts[0];
-        let hostname = parts[1];
-
-        {
-            let mut state_lock = state.lock().unwrap();
-            state_lock.update_progress(host_name, 0, crate::ui::tui::TransferStatus::Transferring);
-            state_lock.add_log(&format!("🔄 {} : Début du transfert vers {}@{}", host_name, username, hostname));
-        }
-
-        // Pour l'instant, utiliser la méthode existante sans callback de progression
-        // TODO: Améliorer pour avoir une vraie progression en temps réel
-        match uploader.upload_files(files, &[(host_name.to_string(), host_entry)], destination) {
-            Ok(_) => {
-                let mut state_lock = state.lock().unwrap();
-                let total_size = files.iter()
-                    .filter_map(|f| std::fs::metadata(f).ok())
-                    .map(|m| m.len())
-                    .sum();
-                state_lock.update_progress(host_name, total_size, crate::ui::tui::TransferStatus::Completed);
-            }
-            Err(e) => {
-                return Err(e);
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Point d'entrée pour lancer le TUI multi-écrans
-    pub fn launch(config: &HostsConfig) -> Result<()> {
-        let mut app = Self::new(config)?;
-        app.run()
     }
 }

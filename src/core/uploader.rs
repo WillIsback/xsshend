@@ -1,95 +1,158 @@
 // Module principal d'orchestration des téléversements
-use anyhow::{Context, Result};
-use std::path::Path;
 use crate::config::HostEntry;
-use crate::ssh::transfer::FileTransfer;
+use crate::core::parallel::SshConnectionPool;
 use crate::core::validator::Validator;
 use crate::utils::logger::XsshendLogger;
+use anyhow::{Context, Result};
+use std::path::Path;
 
 pub struct Uploader {
-    transfer: FileTransfer,
+    ssh_pool: SshConnectionPool,
 }
 
 impl Uploader {
     pub fn new() -> Self {
         Uploader {
-            transfer: FileTransfer::new(),
+            ssh_pool: SshConnectionPool::new(),
         }
     }
 
-    /// Téléverse plusieurs fichiers vers plusieurs serveurs
+    /// Initialise le pool SSH avec les serveurs (à appeler une seule fois)
+    pub fn initialize_ssh_pool(&mut self, hosts: &[(String, &HostEntry)]) -> Result<()> {
+        self.ssh_pool.initialize_with_hosts(hosts)?;
+        Ok(())
+    }
+
+    /// Téléverse plusieurs fichiers vers plusieurs serveurs avec pool SSH
     pub fn upload_files(
-        &self,
+        &mut self,
         files: &[&Path],
         hosts: &[(String, &HostEntry)],
-        destination: &str
+        destination: &str,
     ) -> Result<()> {
         // Validation des fichiers
         XsshendLogger::log_upload_start(files.len(), hosts.len());
-        
+
         for file in files {
             Validator::validate_file(file)
                 .with_context(|| format!("Validation échouée pour {}", file.display()))?;
         }
 
-        println!("🚀 Début du téléversement:");
-        println!("   📁 {} fichier(s)", files.len());
-        println!("   🖥️  {} serveur(s)", hosts.len());
-        println!("   📂 Destination: {}", destination);
-        println!();
+        // Initialiser le pool avec tous les serveurs
+        self.ssh_pool.initialize_with_hosts(hosts)?;
 
-        // Téléverser chaque fichier
+        log::info!(
+            "🚀 Début du téléversement: {} fichier(s) vers {} serveur(s)",
+            files.len(),
+            hosts.len()
+        );
+        log::info!("📂 Destination: {}", destination);
+
+        // Téléverser chaque fichier en parallèle avec gestion d'erreur gracieuse
+        let mut overall_success = true;
+        let mut failed_files = Vec::new();
+
         for file in files {
-            self.upload_single_file(file, hosts, destination)?;
+            match self.upload_single_file_parallel_with_callback(file, hosts, destination, None) {
+                Ok(_) => {
+                    log::info!("✅ Fichier {} téléversé avec succès", file.display());
+                }
+                Err(e) => {
+                    log::error!("❌ Échec téléversement de {} : {}", file.display(), e);
+                    failed_files.push(file.display().to_string());
+                    overall_success = false;
+                    // Continue avec les autres fichiers au lieu de s'arrêter
+                }
+            }
         }
 
-        println!("\n✅ Téléversement terminé avec succès!");
+        // Afficher les statistiques du pool
+        let (created, reused, active) = self.ssh_pool.get_stats();
+        log::info!(
+            "📊 Statistiques connexions - Créées: {}, Réutilisées: {}, Actives: {}",
+            created,
+            reused,
+            active
+        );
+
+        // Nettoyer les connexions à la fin
+        self.ssh_pool.cleanup_connections()?;
+
+        // Résumé final
+        if overall_success {
+            log::info!("✅ Téléversement terminé avec succès!");
+        } else {
+            log::warn!(
+                "⚠️ Téléversement terminé avec {} fichier(s) échoué(s): {}",
+                failed_files.len(),
+                failed_files.join(", ")
+            );
+            if files.len() - failed_files.len() > 0 {
+                log::info!(
+                    "📊 {} fichier(s) sur {} réussi(s)",
+                    files.len() - failed_files.len(),
+                    files.len()
+                );
+            }
+        }
         Ok(())
     }
 
-    /// Téléverse un seul fichier vers tous les serveurs
-    fn upload_single_file(
-        &self,
+    /// Téléverse un seul fichier vers tous les serveurs en parallèle avec callback
+    pub fn upload_single_file_parallel_with_callback(
+        &mut self,
         file: &Path,
         hosts: &[(String, &HostEntry)],
-        destination: &str
+        destination: &str,
+        progress_callback: Option<crate::core::parallel::ProgressCallback>,
     ) -> Result<()> {
-        let file_name = file.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown");
-
-        let remote_path = if destination.ends_with('/') {
-            format!("{}{}", destination, file_name)
-        } else {
-            format!("{}/{}", destination, file_name)
-        };
-
-        println!("📤 Téléversement de {} vers {}...", file.display(), remote_path);
-
-        // Afficher informations du fichier
         let file_size = Validator::get_file_size(file)?;
-        println!("   Taille: {}", Validator::format_file_size(file_size));
-        println!();
 
-        // Téléversement parallèle
-        let results = self.transfer.upload_parallel(file, &remote_path, hosts)
-            .with_context(|| "Échec du téléversement parallèle")?;
+        log::info!(
+            "📤 Téléversement de {} vers {} ({})",
+            file.display(),
+            destination,
+            Validator::format_file_size(file_size)
+        );
 
-        // Afficher le résumé
-        self.transfer.display_summary(&results);
+        // IMPORTANT: Initialiser le pool avec tous les serveurs avant le transfert
+        self.ssh_pool.initialize_with_hosts(hosts)?;
 
-        // Vérifier s'il y a eu des erreurs
-        let error_count = results.iter()
-            .filter(|(_, result)| result.is_err())
-            .count();
+        // Utiliser le pool SSH pour upload parallèle avec callback
+        self.ssh_pool.upload_file_parallel_with_callback(
+            file,
+            hosts,
+            destination,
+            progress_callback,
+        )?;
 
-        if error_count > 0 {
-            anyhow::bail!(
-                "Téléversement partiellement échoué: {}/{} serveurs en erreur", 
-                error_count, 
-                results.len()
-            );
-        }
+        Ok(())
+    }
+
+    /// Téléverse un fichier avec un pool SSH déjà initialisé (évite la réinitialisation)
+    pub fn upload_single_file_with_initialized_pool(
+        &mut self,
+        file: &Path,
+        hosts: &[(String, &HostEntry)],
+        destination: &str,
+        progress_callback: Option<crate::core::parallel::ProgressCallback>,
+    ) -> Result<()> {
+        let file_size = Validator::get_file_size(file)?;
+
+        log::debug!(
+            "📤 Téléversement de {} vers {} ({})",
+            file.display(),
+            destination,
+            Validator::format_file_size(file_size)
+        );
+
+        // Utiliser le pool SSH déjà initialisé pour upload parallèle avec callback
+        self.ssh_pool.upload_file_parallel_with_callback(
+            file,
+            hosts,
+            destination,
+            progress_callback,
+        )?;
 
         Ok(())
     }
@@ -99,33 +162,37 @@ impl Uploader {
         &self,
         files: &[&Path],
         hosts: &[(String, &HostEntry)],
-        destination: &str
+        destination: &str,
     ) -> Result<()> {
-        println!("🔍 Mode dry-run - Simulation du téléversement");
-        println!();
+        log::info!("🔍 Mode dry-run - Simulation du téléversement");
 
         // Validation des fichiers
         for file in files {
             Validator::validate_file(file)
                 .with_context(|| format!("Validation échouée pour {}", file.display()))?;
-            
+
             let file_size = Validator::get_file_size(file)?;
-            println!("📁 {}", file.display());
-            println!("   Taille: {}", Validator::format_file_size(file_size));
+            log::info!(
+                "📁 {} ({})",
+                file.display(),
+                Validator::format_file_size(file_size)
+            );
         }
 
-        println!();
-        println!("🎯 Serveurs cibles:");
+        log::info!("🎯 Serveurs cibles:");
         for (name, host_entry) in hosts {
-            println!("   🖥️  {} → {}", name, host_entry.alias);
+            log::info!("   🖥️  {} → {}", name, host_entry.alias);
         }
 
-        println!();
-        println!("📂 Destination: {}", destination);
-        println!();
-        println!("✅ Simulation terminée - Aucun fichier réellement transféré");
+        log::info!("📂 Destination: {}", destination);
+        log::info!("✅ Simulation terminée - Aucun fichier réellement transféré");
 
         Ok(())
+    }
+
+    /// Nettoyer toutes les connexions SSH du pool
+    pub fn cleanup_ssh_connections(&mut self) -> Result<()> {
+        self.ssh_pool.cleanup_connections()
     }
 
     // Unused method - commented out for optimization

@@ -2,11 +2,11 @@ use crate::config::hosts::{HostEntry, HostsConfig};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Text}, // Removed unused Span
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
-    Frame,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -56,6 +56,36 @@ impl HierarchicalServerSelector {
         Ok(selector)
     }
 
+    /// Constructeur avec vérification de connectivité
+    pub fn new_with_connectivity(hosts_config: &HostsConfig, timeout_secs: u64) -> Result<Self> {
+        log::info!("🔍 Filtrage des serveurs par connectivité...");
+
+        let online_hosts = hosts_config.get_online_hosts_sync(timeout_secs);
+        let online_host_paths: HashSet<String> =
+            online_hosts.iter().map(|(path, _)| path.clone()).collect();
+
+        let mut selector = Self {
+            tree_nodes: Vec::new(),
+            filtered_nodes: Vec::new(),
+            selection_cursor: 0,
+            selected_hosts: HashMap::new(),
+            search_query: String::new(),
+            search_mode: false,
+            expanded_paths: HashSet::new(),
+        };
+
+        selector.build_tree_with_filter(hosts_config, &online_host_paths)?;
+        selector.update_filtered_nodes();
+
+        if online_hosts.is_empty() {
+            log::warn!("⚠️  Aucun serveur en ligne disponible pour la sélection");
+        } else {
+            log::info!("✅ {} serveurs en ligne disponibles", online_hosts.len());
+        }
+
+        Ok(selector)
+    }
+
     /// Construit l'arbre hiérarchique à partir de la configuration
     fn build_tree(&mut self, config: &HostsConfig) -> Result<()> {
         self.tree_nodes.clear();
@@ -95,7 +125,8 @@ impl HierarchicalServerSelector {
 
                     for (host_name, host_entry) in hosts {
                         // Nœud serveur
-                        let host_path = format!("{}/{}/{}/{}", env_name, region_name, type_name, host_name);
+                        let host_path =
+                            format!("{}/{}/{}/{}", env_name, region_name, type_name, host_name);
                         self.tree_nodes.push(TreeNode {
                             key: host_path,
                             display_name: host_name.clone(),
@@ -103,6 +134,145 @@ impl HierarchicalServerSelector {
                             node_type: NodeType::Host,
                             host_entry: Some(host_entry.clone()),
                         });
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Construit l'arbre en filtrant seulement les hôtes en ligne
+    fn build_tree_with_filter(
+        &mut self,
+        config: &HostsConfig,
+        online_paths: &HashSet<String>,
+    ) -> Result<()> {
+        self.tree_nodes.clear();
+
+        for (env_name, regions) in &config.environments {
+            let mut env_has_online_hosts = false;
+
+            // D'abord, vérifier s'il y a des hôtes en ligne dans cet environnement
+            for (region_name, server_types) in regions {
+                for (type_name, hosts) in server_types {
+                    for server_name in hosts.keys() {
+                        let host_path = format!(
+                            "{} > {} > {} > {}",
+                            env_name, region_name, type_name, server_name
+                        );
+                        if online_paths.contains(&host_path) {
+                            env_has_online_hosts = true;
+                            break;
+                        }
+                    }
+                    if env_has_online_hosts {
+                        break;
+                    }
+                }
+                if env_has_online_hosts {
+                    break;
+                }
+            }
+
+            // N'ajouter l'environnement que s'il contient des hôtes en ligne
+            if !env_has_online_hosts {
+                continue;
+            }
+
+            // Nœud environnement
+            let env_path = env_name.clone();
+            self.tree_nodes.push(TreeNode {
+                key: env_path.clone(),
+                display_name: format!("{} 🟢", env_name), // Indicateur en ligne
+                level: 0,
+                node_type: NodeType::Environment,
+                host_entry: None,
+            });
+
+            for (region_name, server_types) in regions {
+                let mut region_has_online_hosts = false;
+
+                // Vérifier s'il y a des hôtes en ligne dans cette région
+                for (type_name, hosts) in server_types {
+                    for server_name in hosts.keys() {
+                        let host_path = format!(
+                            "{} > {} > {} > {}",
+                            env_name, region_name, type_name, server_name
+                        );
+                        if online_paths.contains(&host_path) {
+                            region_has_online_hosts = true;
+                            break;
+                        }
+                    }
+                    if region_has_online_hosts {
+                        break;
+                    }
+                }
+
+                if !region_has_online_hosts {
+                    continue;
+                }
+
+                // Nœud région
+                let region_path = format!("{}/{}", env_name, region_name);
+                self.tree_nodes.push(TreeNode {
+                    key: region_path.clone(),
+                    display_name: format!("{} 🟢", region_name),
+                    level: 1,
+                    node_type: NodeType::Region,
+                    host_entry: None,
+                });
+
+                for (type_name, hosts) in server_types {
+                    let mut type_has_online_hosts = false;
+
+                    // Vérifier s'il y a des hôtes en ligne dans ce type
+                    for server_name in hosts.keys() {
+                        let host_path = format!(
+                            "{} > {} > {} > {}",
+                            env_name, region_name, type_name, server_name
+                        );
+                        if online_paths.contains(&host_path) {
+                            type_has_online_hosts = true;
+                            break;
+                        }
+                    }
+
+                    if !type_has_online_hosts {
+                        continue;
+                    }
+
+                    // Nœud type de serveur
+                    let type_path = format!("{}/{}/{}", env_name, region_name, type_name);
+                    self.tree_nodes.push(TreeNode {
+                        key: type_path.clone(),
+                        display_name: format!("{} 🟢", type_name),
+                        level: 2,
+                        node_type: NodeType::ServerType,
+                        host_entry: None,
+                    });
+
+                    // Nœuds serveurs individuels (seulement ceux en ligne)
+                    for (server_name, host_entry) in hosts {
+                        let host_path = format!(
+                            "{} > {} > {} > {}",
+                            env_name, region_name, type_name, server_name
+                        );
+
+                        if online_paths.contains(&host_path) {
+                            let host_full_path = format!(
+                                "{}/{}/{}/{}",
+                                env_name, region_name, type_name, server_name
+                            );
+                            self.tree_nodes.push(TreeNode {
+                                key: host_full_path,
+                                display_name: format!("🟢 {} ({})", server_name, host_entry.alias),
+                                level: 3,
+                                node_type: NodeType::Host,
+                                host_entry: Some(host_entry.clone()),
+                            });
+                        }
                     }
                 }
             }
@@ -121,7 +291,7 @@ impl HierarchicalServerSelector {
                 let query_lower = self.search_query.to_lowercase();
                 let matches = node.display_name.to_lowercase().contains(&query_lower)
                     || node.key.to_lowercase().contains(&query_lower);
-                
+
                 if !matches {
                     continue;
                 }
@@ -147,7 +317,7 @@ impl HierarchicalServerSelector {
 
         // Vérifier que tous les parents sont expansés
         let path_parts: Vec<&str> = node.key.split('/').collect();
-        
+
         for i in 1..path_parts.len() {
             let parent_path = path_parts[0..i].join("/");
             if !self.expanded_paths.contains(&parent_path) {
@@ -193,7 +363,9 @@ impl HierarchicalServerSelector {
                 Ok(true)
             }
             KeyCode::Down => {
-                if !self.filtered_nodes.is_empty() && self.selection_cursor < self.filtered_nodes.len() - 1 {
+                if !self.filtered_nodes.is_empty()
+                    && self.selection_cursor < self.filtered_nodes.len() - 1
+                {
                     self.selection_cursor += 1;
                 }
                 Ok(true)
@@ -218,7 +390,7 @@ impl HierarchicalServerSelector {
                 self.clear_selection();
                 Ok(true)
             }
-            _ => Ok(false)
+            _ => Ok(false),
         }
     }
 
@@ -226,7 +398,7 @@ impl HierarchicalServerSelector {
     fn toggle_expansion(&mut self) {
         if let Some(&node_index) = self.filtered_nodes.get(self.selection_cursor) {
             let node = &self.tree_nodes[node_index];
-            
+
             if node.node_type != NodeType::Host {
                 if self.expanded_paths.contains(&node.key) {
                     self.expanded_paths.remove(&node.key);
@@ -245,7 +417,7 @@ impl HierarchicalServerSelector {
     fn collapse_current(&mut self) {
         if let Some(&node_index) = self.filtered_nodes.get(self.selection_cursor) {
             let node = &self.tree_nodes[node_index];
-            
+
             if node.node_type != NodeType::Host {
                 self.expanded_paths.remove(&node.key);
                 self.update_filtered_nodes();
@@ -253,7 +425,7 @@ impl HierarchicalServerSelector {
                 // Remonter au parent et le fermer
                 let path_parts: Vec<&str> = node.key.split('/').collect();
                 if path_parts.len() > 1 {
-                    let parent_path = path_parts[0..path_parts.len()-1].join("/");
+                    let parent_path = path_parts[0..path_parts.len() - 1].join("/");
                     self.expanded_paths.remove(&parent_path);
                     self.update_filtered_nodes();
                 }
@@ -265,12 +437,13 @@ impl HierarchicalServerSelector {
     fn toggle_selection(&mut self) {
         if let Some(&node_index) = self.filtered_nodes.get(self.selection_cursor) {
             let node = &self.tree_nodes[node_index];
-            
+
             if let Some(host_entry) = &node.host_entry {
                 if self.selected_hosts.contains_key(&node.display_name) {
                     self.selected_hosts.remove(&node.display_name);
                 } else {
-                    self.selected_hosts.insert(node.display_name.clone(), host_entry.clone());
+                    self.selected_hosts
+                        .insert(node.display_name.clone(), host_entry.clone());
                 }
             }
         }
@@ -281,7 +454,8 @@ impl HierarchicalServerSelector {
         for &node_index in &self.filtered_nodes {
             let node = &self.tree_nodes[node_index];
             if let Some(host_entry) = &node.host_entry {
-                self.selected_hosts.insert(node.display_name.clone(), host_entry.clone());
+                self.selected_hosts
+                    .insert(node.display_name.clone(), host_entry.clone());
             }
         }
     }
@@ -297,9 +471,9 @@ impl HierarchicalServerSelector {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(10),     // Arbre
-                Constraint::Length(6),   // Sélectionnés
-                Constraint::Length(4),   // Aide
+                Constraint::Min(10),   // Arbre
+                Constraint::Length(6), // Sélectionnés
+                Constraint::Length(4), // Aide
             ])
             .split(area);
 
@@ -319,20 +493,32 @@ impl HierarchicalServerSelector {
 
         for &node_index in &self.filtered_nodes {
             let node = &self.tree_nodes[node_index];
-            
+
             // Indentation selon le niveau
             let indent = "  ".repeat(node.level);
-            
+
             // Icône selon le type et l'état
             let icon = match node.node_type {
                 NodeType::Environment => {
-                    if self.expanded_paths.contains(&node.key) { "📂" } else { "📁" }
+                    if self.expanded_paths.contains(&node.key) {
+                        "📂"
+                    } else {
+                        "📁"
+                    }
                 }
                 NodeType::Region => {
-                    if self.expanded_paths.contains(&node.key) { "🌐" } else { "🗺️" }
+                    if self.expanded_paths.contains(&node.key) {
+                        "🌐"
+                    } else {
+                        "🗺️"
+                    }
                 }
                 NodeType::ServerType => {
-                    if self.expanded_paths.contains(&node.key) { "📊" } else { "📋" }
+                    if self.expanded_paths.contains(&node.key) {
+                        "📊"
+                    } else {
+                        "📋"
+                    }
                 }
                 NodeType::Host => {
                     if self.selected_hosts.contains_key(&node.display_name) {
@@ -345,19 +531,26 @@ impl HierarchicalServerSelector {
 
             // Détails supplémentaires pour les hosts
             let display_text = if let Some(host_entry) = &node.host_entry {
-                format!("{}{} {} ({})", indent, icon, node.display_name, host_entry.alias)
+                format!(
+                    "{}{} {} ({})",
+                    indent, icon, node.display_name, host_entry.alias
+                )
             } else {
                 format!("{}{} {}", indent, icon, node.display_name)
             };
 
             // Style selon l'état
             let style = match node.node_type {
-                NodeType::Environment => Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                NodeType::Environment => Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
                 NodeType::Region => Style::default().fg(Color::Cyan),
                 NodeType::ServerType => Style::default().fg(Color::Magenta),
                 NodeType::Host => {
                     if self.selected_hosts.contains_key(&node.display_name) {
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::White)
                     }
@@ -375,7 +568,11 @@ impl HierarchicalServerSelector {
 
         let tree_list = List::new(items)
             .block(Block::default().borders(Borders::ALL).title(title))
-            .highlight_style(Style::default().bg(Color::Blue).add_modifier(Modifier::BOLD));
+            .highlight_style(
+                Style::default()
+                    .bg(Color::Blue)
+                    .add_modifier(Modifier::BOLD),
+            );
 
         let mut list_state = ListState::default();
         list_state.select(Some(self.selection_cursor));
@@ -387,7 +584,10 @@ impl HierarchicalServerSelector {
         let selected_text = if self.selected_hosts.is_empty() {
             Text::from("Aucun serveur sélectionné")
         } else {
-            let mut lines = vec![Line::from(format!("🖥️ {} serveur(s) sélectionné(s):", self.selected_hosts.len()))];
+            let mut lines = vec![Line::from(format!(
+                "🖥️ {} serveur(s) sélectionné(s):",
+                self.selected_hosts.len()
+            ))];
             for (name, entry) in &self.selected_hosts {
                 lines.push(Line::from(format!("  ✅ {} → {}", name, entry.alias)));
             }
@@ -450,9 +650,20 @@ impl HierarchicalServerSelector {
 
     /// Retourne les serveurs sélectionnés dans le format attendu
     pub fn get_selected_hosts(&self) -> Vec<(String, HostEntry)> {
-        self.selected_hosts.iter()
+        self.selected_hosts
+            .iter()
             .map(|(name, entry)| (name.clone(), entry.clone()))
             .collect()
+    }
+
+    /// Réinitialise complètement la sélection
+    pub fn reset_selection(&mut self) {
+        self.selected_hosts.clear();
+        self.selection_cursor = 0;
+        self.search_query.clear();
+        self.search_mode = false;
+        self.expanded_paths.clear();
+        self.update_filtered_nodes();
     }
 
     // Unused method - commented out for optimization

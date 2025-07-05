@@ -1,25 +1,35 @@
+use crate::core::parallel::TransferStatus;
+use crate::ui::app_state::{AppScreen, AppState};
 use anyhow::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use std::path::PathBuf;
-use crate::ui::app_state::{AppScreen, AppState};
 
 /// Gestionnaire d'événements pour le TUI multi-écrans
 pub struct MultiScreenEventHandler;
 
 impl MultiScreenEventHandler {
     pub fn handle_event(state: &mut AppState, event: Event) -> Result<()> {
-        match event {
-            Event::Key(key_event) => {
-                Self::handle_key_event(state, key_event)?;
-            }
-            _ => {}
+        if let Event::Key(key_event) = event {
+            Self::handle_key_event(state, key_event)?;
         }
         Ok(())
     }
 
     fn handle_key_event(state: &mut AppState, key_event: KeyEvent) -> Result<()> {
-        // Gestion globale
+        // Gestion globale sauf pour l'écran de destination (qui a sa propre logique Escape)
         match key_event.code {
+            KeyCode::Esc if !matches!(state.current_screen, AppScreen::DestinationInput) => {
+                // Permettre le reset uniquement si pas de transferts actifs
+                let has_active_transfers = state.transfers.values().any(|t| {
+                    t.status == crate::core::parallel::TransferStatus::Transferring
+                        || t.status == crate::core::parallel::TransferStatus::Connecting
+                });
+
+                if !has_active_transfers {
+                    state.reset_to_beginning();
+                    return Ok(());
+                }
+            }
             KeyCode::Char('q') => {
                 state.should_quit = true;
                 return Ok(());
@@ -130,7 +140,7 @@ impl MultiScreenEventHandler {
         // Déléguer la gestion au sélecteur hiérarchique
         if let Some(ref mut selector) = state.hierarchical_selector {
             let handled = selector.handle_key_event(key_event)?;
-            
+
             if handled {
                 // Synchroniser les serveurs sélectionnés
                 state.sync_selected_hosts_from_hierarchical();
@@ -178,8 +188,13 @@ impl MultiScreenEventHandler {
                 }
             }
             KeyCode::Esc => {
-                // Effacer tout le champ
-                state.destination_input.clear();
+                // Si le champ est vide, faire un reset complet
+                // Sinon, juste vider le champ
+                if state.destination_input.is_empty() {
+                    state.reset_to_beginning();
+                } else {
+                    state.destination_input.clear();
+                }
             }
             KeyCode::F(1) => {
                 // Raccourci : répertoire home
@@ -216,10 +231,11 @@ impl MultiScreenEventHandler {
             }
             KeyCode::Backspace => {
                 // Retourner à l'écran de sélection de serveurs (uniquement si aucun transfert en cours)
-                let has_active_transfers = state.transfers.values()
-                    .any(|t| t.status == crate::ui::tui::TransferStatus::Transferring 
-                          || t.status == crate::ui::tui::TransferStatus::Connecting);
-                
+                let has_active_transfers = state.transfers.values().any(|t| {
+                    t.status == TransferStatus::Transferring
+                        || t.status == TransferStatus::Connecting
+                });
+
                 if !has_active_transfers {
                     state.previous_screen();
                 }
@@ -227,8 +243,8 @@ impl MultiScreenEventHandler {
             KeyCode::Char('r') => {
                 // Retry les transferts échoués
                 for transfer in state.transfers.values_mut() {
-                    if transfer.status == crate::ui::tui::TransferStatus::Failed {
-                        transfer.status = crate::ui::tui::TransferStatus::Pending;
+                    if matches!(transfer.status, TransferStatus::Failed(_)) {
+                        transfer.status = TransferStatus::Pending;
                         transfer.error_message = None;
                         transfer.bytes_transferred = 0;
                     }

@@ -6,3 +6,4 @@
 *.temp
 hosts_*.json
 *.backup
+/test
