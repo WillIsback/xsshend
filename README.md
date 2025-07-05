@@ -276,6 +276,51 @@ tests/
     └── helpers.rs       # Utilitaires de test
 ```
 
+## 🧪 Tests et Validation
+
+### Tests Unitaires
+
+```bash
+cargo test                # Tests des modules
+cargo test --verbose     # Tests avec détails
+```
+
+### Tests d'Intégration en Conditions Réelles
+
+Un module de test complet avec **Multipass** permet de tester xsshend sur de vraies VMs Ubuntu :
+
+```bash
+# Démonstration complète automatisée
+cd test/
+./demo.sh
+
+# Ou setup manuel
+./test-vms.sh launch-all           # Lance 5 VMs Ubuntu configurées
+./generate-test-files.sh           # Génère fichiers de test variés
+./run-integration-tests.sh         # Exécute 9 tests automatisés
+```
+
+#### Environnement de Test
+
+- **5 VMs Ubuntu 22.04** simulant Dev/Staging/Production
+- **SSH configuré automatiquement** avec clés de test
+- **Tests parallèles** sur plusieurs serveurs simultanément
+- **Fichiers variés** : texte, JSON, binaires, gros fichiers (1MB)
+- **Isolation complète** : aucun impact sur vos serveurs
+
+#### Suite de Tests Automatisés
+
+✅ Interface CLI et aide  
+✅ Configuration hosts.json et filtrage  
+✅ Mode dry-run (simulation)  
+✅ Transfert simple et multiple  
+✅ Barres de progression (gros fichiers)  
+✅ Transferts parallèles multi-serveurs  
+✅ Gestion d'erreurs robuste  
+✅ Tests de performance et stress  
+
+**Résultat attendu :** 9/9 tests passent = prêt pour production !
+
 ## 🚦 Exemples d'Usage
 
 ### Scénario 1: Déploiement Application Web

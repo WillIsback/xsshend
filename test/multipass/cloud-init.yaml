@@ -1,0 +1,109 @@
+#cloud-config
+# Configuration cloud-init pour les VMs de test xsshend
+# Automatise la configuration SSH et l'installation des dépendances
+
+# Mise à jour automatique du système
+package_update: true
+package_upgrade: true
+
+# Packages supplémentaires à installer
+packages:
+  - openssh-server
+  - curl
+  - wget
+  - git
+  - htop
+  - tree
+  - nano
+
+# Configuration des utilisateurs
+users:
+  # Utilisateur de test principal
+  - name: xsshend-test
+    gecos: "Utilisateur de test xsshend"
+    groups: sudo
+    shell: /bin/bash
+    lock_passwd: false
+    passwd: "$6$rounds=4096$testpass$encrypted_password_here"
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAA... xsshend-test-key
+  
+  # Utilisateur pour test de déploiement web
+  - name: deploy
+    gecos: "Deployment user"
+    groups: www-data
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAA... deploy-key
+  
+  # Utilisateur pour test d'API
+  - name: api
+    gecos: "API deployment user" 
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAA... api-key
+
+# Configuration SSH
+ssh_keys:
+  ed25519_private: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    # Clé privée SSH générée automatiquement
+    -----END OPENSSH PRIVATE KEY-----
+  ed25519_public: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAA... auto-generated-key
+
+# Configuration SSH sécurisée
+ssh:
+  emit_keys_to_console: false
+  ssh_deletekeys: false
+  ssh_genkeytypes: [ed25519, rsa]
+
+# Création de répertoires de test
+runcmd:
+  # Créer les répertoires de destination de test
+  - mkdir -p /opt/uploads
+  - mkdir -p /var/www/uploads  
+  - mkdir -p /home/deploy/files
+  - mkdir -p /home/api/uploads
+  - mkdir -p /tmp/xsshend-test
+  
+  # Ajuster les permissions
+  - chown -R deploy:deploy /home/deploy/files
+  - chown -R api:api /home/api/uploads
+  - chown -R www-data:www-data /var/www/uploads
+  - chmod 755 /opt/uploads /var/www/uploads /tmp/xsshend-test
+  
+  # Créer des fichiers de test pour vérification
+  - echo "VM de test xsshend - $(hostname)" > /opt/uploads/vm-info.txt
+  - echo "Timestamp: $(date)" >> /opt/uploads/vm-info.txt
+  - echo "IP: $(hostname -I)" >> /opt/uploads/vm-info.txt
+  
+  # Redémarrer SSH avec la nouvelle config
+  - systemctl restart ssh
+  - systemctl enable ssh
+
+# Configuration du hostname dynamique
+hostname: xsshend-test-vm
+
+# Timezone
+timezone: Europe/Paris
+
+# Messages de fin d'installation
+final_message: |
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║                     VM de test xsshend prête !                  ║
+  ║                                                                  ║
+  ║  SSH:     ssh xsshend-test@$(hostname -I | cut -d' ' -f1)       ║
+  ║  Deploy:  ssh deploy@$(hostname -I | cut -d' ' -f1)             ║
+  ║  API:     ssh api@$(hostname -I | cut -d' ' -f1)                ║
+  ║                                                                  ║
+  ║  Dossiers de test:                                               ║
+  ║    - /opt/uploads         (général)                             ║
+  ║    - /var/www/uploads     (web)                                 ║
+  ║    - /home/deploy/files   (deploy)                              ║
+  ║    - /home/api/uploads    (api)                                 ║
+  ║    - /tmp/xsshend-test    (temporaire)                          ║
+  ║                                                                  ║
+  ║  Installation terminée à $(date)                                ║
+  ╚══════════════════════════════════════════════════════════════════╝
