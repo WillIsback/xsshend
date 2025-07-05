@@ -378,8 +378,27 @@ main() {
 
 # Vérification que Multipass est installé
 if ! command -v multipass &> /dev/null; then
-    log_error "Multipass n'est pas installé. Installez-le avec:"
-    echo "  sudo snap install multipass --classic"
+    # Essayer le chemin snap par défaut
+    if [[ -f "/snap/bin/multipass" ]]; then
+        export PATH="/snap/bin:$PATH"
+        log_info "Multipass trouvé dans /snap/bin, ajout au PATH"
+    else
+        log_error "Multipass n'est pas installé ou introuvable!"
+        echo ""
+        echo "Vérifications :"
+        echo "  1. snap list | grep multipass"
+        echo "  2. export PATH=\"/snap/bin:\$PATH\""
+        echo ""
+        echo "Installation si nécessaire :"
+        echo "  sudo snap install multipass --classic"
+        exit 1
+    fi
+fi
+
+# Test de fonctionnement
+if ! multipass version &> /dev/null; then
+    log_error "Multipass installé mais ne fonctionne pas!"
+    echo "Essayez: sudo snap refresh multipass"
     exit 1
 fi
 

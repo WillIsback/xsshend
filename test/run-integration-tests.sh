@@ -51,6 +51,17 @@ test_failure() {
 check_prerequisites() {
     log_info "Vérification des prérequis..."
     
+    # Vérifier que Multipass est accessible
+    if ! command -v multipass &> /dev/null; then
+        if [[ -f "/snap/bin/multipass" ]]; then
+            export PATH="/snap/bin:$PATH"
+            log_info "Multipass trouvé dans /snap/bin, ajout au PATH"
+        else
+            log_error "Multipass n'est pas installé ou introuvable!"
+            exit 1
+        fi
+    fi
+    
     # Vérifier que xsshend est compilé
     if [[ ! -f "$XSSHEND_BIN" ]]; then
         log_error "xsshend n'est pas compilé. Exécutez 'cargo build' d'abord."

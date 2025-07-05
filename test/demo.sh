@@ -38,7 +38,7 @@ show_banner() {
 ║                                                                  ║
 ║              Téléversement Multi-SSH avec Multipass             ║
 ║                                                                  ║
-║                        Version 0.1.0                           ║
+║                        Version 0.1.1                           ║
 ║                                                                  ║
 ╚══════════════════════════════════════════════════════════════════╝
 EOF
@@ -46,13 +46,34 @@ EOF
 }
 
 check_multipass() {
+    # Vérifier si multipass est accessible
     if ! command -v multipass &> /dev/null; then
-        echo "❌ Multipass n'est pas installé!"
+        # Essayer le chemin snap par défaut
+        if [[ -f "/snap/bin/multipass" ]]; then
+            export PATH="/snap/bin:$PATH"
+            demo_info "Multipass trouvé dans /snap/bin, ajout au PATH"
+        else
+            echo "❌ Multipass n'est pas installé ou introuvable!"
+            echo ""
+            echo "Vérifications :"
+            echo "  1. Vérifiez l'installation: snap list | grep multipass"
+            echo "  2. Ajoutez /snap/bin au PATH: export PATH=\"/snap/bin:\$PATH\""
+            echo ""
+            echo "Installation si nécessaire :"
+            echo "  Ubuntu/Debian: sudo snap install multipass --classic"
+            echo "  macOS:         brew install multipass"
+            echo "  Windows:       https://multipass.run/"
+            exit 1
+        fi
+    fi
+    
+    # Test de fonctionnement
+    if ! multipass version &> /dev/null; then
+        echo "❌ Multipass installé mais ne fonctionne pas!"
         echo ""
-        echo "Installation :"
-        echo "  Ubuntu/Debian: sudo snap install multipass --classic"
-        echo "  macOS:         brew install multipass"
-        echo "  Windows:       https://multipass.run/"
+        echo "Essayez :"
+        echo "  sudo snap refresh multipass"
+        echo "  ou redémarrez votre session"
         exit 1
     fi
 }
@@ -139,7 +160,7 @@ demo_main() {
 ║                                                                  ║
 ║                      🎉 DÉMONSTRATION TERMINÉE !                ║
 ║                                                                  ║
-║  xsshend v0.1.0 a été testé avec succès dans un environnement   ║
+║  xsshend v0.1.1 a été testé avec succès dans un environnement   ║
 ║  multi-VM Multipass. Toutes les fonctionnalités principales     ║
 ║  ont été validées :                                              ║
 ║                                                                  ║
