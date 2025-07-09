@@ -16,7 +16,11 @@ use std::{
 use super::{
     app_state::{AppScreen, AppState},
     multi_screen_handler::MultiScreenEventHandler,
-    screens::{DestinationInputScreen, FileSelectionScreen, ProgressScreen, ServerSelectionScreen},
+    screens::{
+        DestinationInputScreen, FileSelectionScreen, ProgressScreen, ServerSelectionScreen,
+        SshKeySelectionScreen,
+    },
+    theme::get_theme_colors,
 };
 use crate::{
     config::{HostEntry, HostsConfig},
@@ -123,22 +127,43 @@ impl MultiScreenTuiApp {
         let upload_state = Arc::clone(&self.state);
         let mut upload_handle: Option<thread::JoinHandle<()>> = None;
 
+        // Détecter le thème du terminal une fois au début
+        let theme_colors = get_theme_colors();
+
         loop {
-            // Dessiner l'interface
+            // Dessiner l'interface avec le thème adapté
             terminal.draw(|f| {
                 let state = self.state.lock().unwrap();
                 match state.current_screen {
                     AppScreen::FileSelection => {
-                        FileSelectionScreen::render(f, f.size(), &state);
+                        FileSelectionScreen::render_with_theme(f, f.size(), &state, &theme_colors);
+                    }
+                    AppScreen::SshKeySelection => {
+                        SshKeySelectionScreen::render_with_theme(
+                            f,
+                            f.size(),
+                            &state,
+                            &theme_colors,
+                        );
                     }
                     AppScreen::ServerSelection => {
-                        ServerSelectionScreen::render(f, f.size(), &state);
+                        ServerSelectionScreen::render_with_theme(
+                            f,
+                            f.size(),
+                            &state,
+                            &theme_colors,
+                        );
                     }
                     AppScreen::DestinationInput => {
-                        DestinationInputScreen::render(f, f.size(), &state);
+                        DestinationInputScreen::render_with_theme(
+                            f,
+                            f.size(),
+                            &state,
+                            &theme_colors,
+                        );
                     }
                     AppScreen::UploadProgress => {
-                        ProgressScreen::render(f, f.size(), &state);
+                        ProgressScreen::render_with_theme(f, f.size(), &state, &theme_colors);
                     }
                 }
             })?;

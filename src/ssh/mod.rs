@@ -1,4 +1,5 @@
-// Module SSH - à implémenter
+// Module SSH
 pub mod client;
+pub mod keys;
 
-// pub use client::SshClient; // Unused
+// Les exports seront ajoutés si nécessaire

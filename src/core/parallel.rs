@@ -19,17 +19,7 @@ pub enum TransferStatus {
 }
 
 impl TransferStatus {
-    /// Retourne la couleur associée au statut pour l'affichage TUI
-    pub fn color(&self) -> ratatui::style::Color {
-        use ratatui::style::Color;
-        match self {
-            TransferStatus::Pending => Color::Gray,
-            TransferStatus::Connecting => Color::Yellow,
-            TransferStatus::Transferring => Color::Blue,
-            TransferStatus::Completed => Color::Green,
-            TransferStatus::Failed(_) => Color::Red,
-        }
-    }
+    // Les couleurs sont maintenant gérées par le système de thème
 }
 
 /// Informations de connexion pour un serveur

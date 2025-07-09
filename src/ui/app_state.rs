@@ -16,7 +16,6 @@ pub struct TransferProgress {
     pub bytes_transferred: u64,
     pub total_bytes: u64,
     pub speed: f64, // octets/seconde
-    pub host_alias: String,
     pub file_name: String, // Nom du fichier en cours de transfert
     pub eta: Option<Duration>,
     pub error_message: Option<String>,
@@ -26,6 +25,7 @@ pub struct TransferProgress {
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppScreen {
     FileSelection,
+    SshKeySelection, // Nouvel écran pour la sélection de clé SSH
     ServerSelection,
     DestinationInput,
     UploadProgress,
@@ -54,6 +54,12 @@ pub struct AppState {
     // Compteur de fichiers transférés
     pub completed_files_count: usize,
     pub total_files_count: usize,
+
+    // Gestion des clés SSH
+    pub ssh_key_manager: Option<crate::ssh::keys::SshKeyManager>,
+    pub available_ssh_keys: Vec<crate::ssh::keys::SshKey>,
+    pub selected_ssh_key: Option<crate::ssh::keys::SshKey>,
+    pub ssh_key_selection_cursor: usize,
 }
 
 impl Default for AppState {
@@ -81,6 +87,10 @@ impl Default for AppState {
             should_quit: false,
             completed_files_count: 0,
             total_files_count: 0,
+            ssh_key_manager: None,
+            available_ssh_keys: Vec::new(),
+            selected_ssh_key: None,
+            ssh_key_selection_cursor: 0,
         }
     }
 }
@@ -99,8 +109,12 @@ impl AppState {
         match self.current_screen {
             AppScreen::FileSelection => {
                 if !self.selected_files.is_empty() {
-                    self.current_screen = AppScreen::ServerSelection;
+                    self.current_screen = AppScreen::SshKeySelection;
+                    self.init_ssh_key_manager()?;
                 }
+            }
+            AppScreen::SshKeySelection => {
+                self.current_screen = AppScreen::ServerSelection;
             }
             AppScreen::ServerSelection => {
                 if !self.selected_hosts.is_empty() {
@@ -125,8 +139,11 @@ impl AppState {
             AppScreen::FileSelection => {
                 // Déjà au premier écran
             }
-            AppScreen::ServerSelection => {
+            AppScreen::SshKeySelection => {
                 self.current_screen = AppScreen::FileSelection;
+            }
+            AppScreen::ServerSelection => {
+                self.current_screen = AppScreen::SshKeySelection;
             }
             AppScreen::DestinationInput => {
                 self.current_screen = AppScreen::ServerSelection;
@@ -182,11 +199,10 @@ impl AppState {
 
         // Pour l'instant, initialiser avec des tailles par fichier
         // La taille totale sera mise à jour lors du transfert de chaque fichier
-        for (host_name, host_entry) in &self.selected_hosts {
+        for (host_name, _host_entry) in &self.selected_hosts {
             self.transfers.insert(
                 host_name.clone(),
                 TransferProgress {
-                    host_alias: host_entry.alias.clone(),
                     file_name: "En attente...".to_string(), // Sera mis à jour lors du transfert
                     bytes_transferred: 0,
                     total_bytes: 0, // Sera mis à jour lors du transfert du fichier
@@ -473,6 +489,69 @@ impl AppState {
     /// Obtient le compteur de fichiers sous forme de chaîne (ex: "2/10")
     pub fn get_files_progress_string(&self) -> String {
         format!("{}/{}", self.completed_files_count, self.total_files_count)
+    }
+
+    /// Initialise le gestionnaire de clés SSH
+    pub fn init_ssh_key_manager(&mut self) -> Result<()> {
+        use crate::ssh::keys::SshKeyManager;
+
+        let key_manager = SshKeyManager::new()?;
+        self.available_ssh_keys = key_manager.get_keys().to_vec();
+        self.ssh_key_manager = Some(key_manager);
+
+        // Auto-sélectionner une clé si il n'y en a qu'une
+        if self.available_ssh_keys.len() == 1 {
+            self.selected_ssh_key = Some(self.available_ssh_keys[0].clone());
+            self.add_log(&format!(
+                "🔑 Clé SSH auto-sélectionnée: {}",
+                self.available_ssh_keys[0].description()
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Sélectionne la clé SSH actuelle
+    pub fn select_current_ssh_key(&mut self) {
+        if let Some(key) = self.available_ssh_keys.get(self.ssh_key_selection_cursor) {
+            self.selected_ssh_key = Some(key.clone());
+            self.add_log(&format!("🔑 Clé SSH sélectionnée: {}", key.description()));
+        }
+    }
+
+    /// Navigation dans la liste des clés SSH
+    pub fn ssh_key_cursor_up(&mut self) {
+        if self.ssh_key_selection_cursor > 0 {
+            self.ssh_key_selection_cursor -= 1;
+        }
+    }
+
+    pub fn ssh_key_cursor_down(&mut self) {
+        if self.ssh_key_selection_cursor < self.available_ssh_keys.len().saturating_sub(1) {
+            self.ssh_key_selection_cursor += 1;
+        }
+    }
+
+    /// Permet de passer l'écran de sélection de clé SSH
+    pub fn skip_ssh_key_selection(&mut self) {
+        // Si aucune clé n'est sélectionnée, utiliser la première disponible ou aucune
+        if self.selected_ssh_key.is_none() && !self.available_ssh_keys.is_empty() {
+            if let Some(key_manager) = &self.ssh_key_manager {
+                if let Some(best_key) = key_manager.select_best_key() {
+                    self.selected_ssh_key = Some(best_key.clone());
+                    self.add_log(&format!(
+                        "🔑 Clé SSH auto-sélectionnée: {}",
+                        best_key.description()
+                    ));
+                }
+            }
+        }
+
+        if self.selected_ssh_key.is_none() {
+            self.add_log(
+                "🔑 Aucune clé SSH spécifique - utilisation du comportement par défaut (ssh-agent)",
+            );
+        }
     }
 }
 

@@ -1,12 +1,12 @@
 use crate::config::hosts::{HostEntry, HostsConfig};
+use crate::ui::theme::{ThemeColors, ratatui_theme};
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Text}, // Removed unused Span
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use std::collections::{HashMap, HashSet};
 
@@ -465,8 +465,15 @@ impl HierarchicalServerSelector {
         self.selected_hosts.clear();
     }
 
-    /// Rendu de l'interface
+    /// Rendu de l'interface (version compatible sans thème)
+    #[allow(dead_code)]
     pub fn render(&self, f: &mut Frame, area: Rect) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        self.render_with_theme(f, area, &theme_colors);
+    }
+
+    pub fn render_with_theme(&self, f: &mut Frame, area: Rect, theme_colors: &ThemeColors) {
         // Diviser la zone : arbre + sélectionnés + aide
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -477,18 +484,26 @@ impl HierarchicalServerSelector {
             ])
             .split(area);
 
-        self.render_tree(f, chunks[0]);
-        self.render_selected(f, chunks[1]);
-        self.render_help(f, chunks[2]);
+        self.render_tree_with_theme(f, chunks[0], theme_colors);
+        self.render_selected_with_theme(f, chunks[1], theme_colors);
+        self.render_help_with_theme(f, chunks[2], theme_colors);
 
         // Overlay de recherche si actif
         if self.search_mode {
-            self.render_search_overlay(f, area);
+            self.render_search_overlay_with_theme(f, area, theme_colors);
         }
     }
 
-    /// Rendu de l'arbre hiérarchique
+    /// Rendu de l'arbre hiérarchique (version compatible sans thème)
+    #[allow(dead_code)]
     fn render_tree(&self, f: &mut Frame, area: Rect) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        self.render_tree_with_theme(f, area, &theme_colors);
+    }
+
+    /// Rendu de l'arbre hiérarchique avec thème
+    fn render_tree_with_theme(&self, f: &mut Frame, area: Rect, theme_colors: &ThemeColors) {
         let mut items = Vec::new();
 
         for &node_index in &self.filtered_nodes {
@@ -539,20 +554,16 @@ impl HierarchicalServerSelector {
                 format!("{}{} {}", indent, icon, node.display_name)
             };
 
-            // Style selon l'état
+            // Style selon l'état avec thème
             let style = match node.node_type {
-                NodeType::Environment => Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-                NodeType::Region => Style::default().fg(Color::Cyan),
-                NodeType::ServerType => Style::default().fg(Color::Magenta),
+                NodeType::Environment => ratatui_theme::title_primary_style(theme_colors),
+                NodeType::Region => ratatui_theme::title_secondary_style(theme_colors),
+                NodeType::ServerType => ratatui_theme::text_accent_style(theme_colors),
                 NodeType::Host => {
                     if self.selected_hosts.contains_key(&node.display_name) {
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD)
+                        ratatui_theme::success_style(theme_colors)
                     } else {
-                        Style::default().fg(Color::White)
+                        ratatui_theme::unselected_item_style(theme_colors)
                     }
                 }
             };
@@ -567,20 +578,24 @@ impl HierarchicalServerSelector {
         };
 
         let tree_list = List::new(items)
-            .block(Block::default().borders(Borders::ALL).title(title))
-            .highlight_style(
-                Style::default()
-                    .bg(Color::Blue)
-                    .add_modifier(Modifier::BOLD),
-            );
+            .block(ratatui_theme::themed_block(theme_colors, &title))
+            .highlight_style(ratatui_theme::selection_style(theme_colors));
 
         let mut list_state = ListState::default();
         list_state.select(Some(self.selection_cursor));
         f.render_stateful_widget(tree_list, area, &mut list_state);
     }
 
-    /// Rendu des serveurs sélectionnés
+    /// Rendu des serveurs sélectionnés (version compatible sans thème)
+    #[allow(dead_code)]
     fn render_selected(&self, f: &mut Frame, area: Rect) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        self.render_selected_with_theme(f, area, &theme_colors);
+    }
+
+    /// Rendu des serveurs sélectionnés avec thème
+    fn render_selected_with_theme(&self, f: &mut Frame, area: Rect, theme_colors: &ThemeColors) {
         let selected_text = if self.selected_hosts.is_empty() {
             Text::from("Aucun serveur sélectionné")
         } else {
@@ -595,14 +610,22 @@ impl HierarchicalServerSelector {
         };
 
         let selected_servers = Paragraph::new(selected_text)
-            .style(Style::default().fg(Color::Green))
-            .block(Block::default().borders(Borders::ALL).title("Sélectionnés"))
+            .style(ratatui_theme::success_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Sélectionnés"))
             .wrap(Wrap { trim: true });
         f.render_widget(selected_servers, area);
     }
 
-    /// Rendu de l'aide
+    /// Rendu de l'aide (version compatible sans thème)
+    #[allow(dead_code)]
     fn render_help(&self, f: &mut Frame, area: Rect) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        self.render_help_with_theme(f, area, &theme_colors);
+    }
+
+    /// Rendu de l'aide avec thème
+    fn render_help_with_theme(&self, f: &mut Frame, area: Rect, theme_colors: &ThemeColors) {
         let help_text = if self.search_mode {
             "🔍 Mode recherche: Tapez pour filtrer | Entrée: Valider | Esc: Annuler"
         } else {
@@ -610,14 +633,26 @@ impl HierarchicalServerSelector {
         };
 
         let help = Paragraph::new(help_text)
-            .style(Style::default().fg(Color::Gray))
-            .block(Block::default().borders(Borders::ALL).title("Aide"))
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(theme_colors, "Aide"))
             .wrap(Wrap { trim: true });
         f.render_widget(help, area);
     }
 
-    /// Overlay de recherche
+    /// Overlay de recherche (version compatible sans thème)
+    #[allow(dead_code)]
     fn render_search_overlay(&self, f: &mut Frame, area: Rect) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        self.render_search_overlay_with_theme(f, area, &theme_colors);
+    }
+
+    fn render_search_overlay_with_theme(
+        &self,
+        f: &mut Frame,
+        area: Rect,
+        theme_colors: &ThemeColors,
+    ) {
         let popup_area = {
             let vertical = Layout::default()
                 .direction(Direction::Vertical)
@@ -642,8 +677,8 @@ impl HierarchicalServerSelector {
 
         let search_text = format!("🔍 Recherche: {}", self.search_query);
         let search_popup = Paragraph::new(search_text)
-            .style(Style::default().fg(Color::White).bg(Color::Blue))
-            .block(Block::default().borders(Borders::ALL).title("Rechercher"))
+            .style(ratatui_theme::selection_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, "Rechercher"))
             .alignment(Alignment::Left);
         f.render_widget(search_popup, popup_area);
     }

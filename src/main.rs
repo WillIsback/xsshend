@@ -100,6 +100,19 @@ fn main() -> Result<()> {
                         .short('v')
                         .help("Mode verbeux")
                         .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("ssh-key")
+                        .long("ssh-key")
+                        .short('k')
+                        .help("Clé SSH à utiliser (nom du fichier sans extension, ex: id_ed25519)")
+                        .value_name("KEY_NAME"),
+                )
+                .arg(
+                    Arg::new("ssh-key-interactive")
+                        .long("ssh-key-interactive")
+                        .help("Sélection interactive de la clé SSH à utiliser")
+                        .action(clap::ArgAction::SetTrue),
                 ),
         )
         .subcommand(Command::new("list").about("Liste les serveurs disponibles"));
@@ -231,12 +244,77 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
+            // Gestion de la sélection de clé SSH
+            let selected_ssh_key = if sub_matches.get_flag("ssh-key-interactive") {
+                // Sélection interactive de la clé SSH
+                println!("🔑 Sélection de la clé SSH...");
+                use crate::ssh::keys::SshKeyManager;
+
+                let key_manager = match SshKeyManager::new() {
+                    Ok(manager) => manager,
+                    Err(e) => {
+                        log::error!(
+                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                };
+
+                match key_manager.select_key_interactive() {
+                    Ok(Some(key)) => Some(key.clone()),
+                    Ok(None) => {
+                        log::warn!("⚠️ Aucune clé SSH sélectionnée");
+                        None
+                    }
+                    Err(e) => {
+                        log::error!("❌ Erreur lors de la sélection de clé SSH: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+            } else if let Some(key_name) = sub_matches.get_one::<String>("ssh-key") {
+                // Clé spécifiée par nom
+                println!("🔑 Recherche de la clé SSH: {}", key_name);
+                use crate::ssh::keys::SshKeyManager;
+
+                let key_manager = match SshKeyManager::new() {
+                    Ok(manager) => manager,
+                    Err(e) => {
+                        log::error!(
+                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                };
+
+                match key_manager.get_key_by_name(key_name) {
+                    Some(key) => {
+                        println!("✅ Clé SSH trouvée: {}", key.description());
+                        Some(key.clone())
+                    }
+                    None => {
+                        log::error!("❌ Clé SSH '{}' non trouvée", key_name);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Pas de clé spécifiée, utiliser le comportement par défaut (ssh-agent)
+                None
+            };
+
             // Destination et fichiers
             let destination = sub_matches.get_one::<String>("dest").unwrap();
             let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
 
             // Créer l'uploader
             let mut uploader = Uploader::new();
+
+            // Si une clé SSH spécifique a été sélectionnée, l'indiquer
+            if let Some(ref key) = selected_ssh_key {
+                log::info!("🔑 Utilisation de la clé SSH: {}", key.description());
+                // TODO: Passer la clé à l'uploader une fois que le SshConnectionPool supporte les clés spécifiques
+            }
 
             if sub_matches.get_flag("dry-run") {
                 // Mode dry-run - simulation

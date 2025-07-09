@@ -1,22 +1,44 @@
-# Gestion Automatique des Clés SSH
+# 🔑 Gestion des clés SSH
 
 ## Vue d'ensemble
 
-`xsshend` intègre désormais une gestion automatique des clés SSH pour simplifier l'expérience des nouveaux utilisateurs. L'application vérifie automatiquement l'existence de clés SSH privées lors du démarrage et propose de générer une nouvelle clé si aucune n'est trouvée.
+xsshend offre une gestion complète des clés SSH avec détection automatique, sélection interactive et support de ssh-agent. Le système simplifie l'authentification SSH en gérant automatiquement les différents types de clés et propose une interface intuitive pour choisir la clé appropriée.
 
-## Fonctionnalités
+## Nouvelles fonctionnalités (v0.2.0)
 
-### Détection Automatique des Clés
+### Sélection interactive de clés
 
-Au démarrage, `xsshend` vérifie la présence de clés SSH dans `~/.ssh/` selon l'ordre de préférence suivant :
+- **Interface dédiée** : Écran spécialisé pour choisir la clé SSH
+- **Détection automatique** : Découverte de toutes les clés dans `~/.ssh/`
+- **Informations détaillées** : Type, taille, commentaire pour chaque clé
+- **Navigation intuitive** : Sélection avec les flèches et espace
 
-1. **Ed25519** (`id_ed25519`) - Recommandé pour sa sécurité et performance
-2. **RSA** (`id_rsa`) - Support legacy
-3. **ECDSA** (`id_ecdsa`) - Alternative moderne
+### Support étendu des clés
 
-### Génération Automatique
+- **Ed25519** : `id_ed25519` (recommandé)
+- **RSA** : `id_rsa`, clés RSA personnalisées  
+- **ECDSA** : `id_ecdsa`
+- **DSA** : `id_dsa` (déprécié mais supporté)
+- **Clés personnalisées** : Toute paire clé privée/publique
 
-Si aucune clé n'est trouvée, l'application :
+## Détection automatique des clés
+
+### Structure de détection
+
+```
+~/.ssh/
+├── id_ed25519      # Clé privée Ed25519
+├── id_ed25519.pub  # Clé publique Ed25519
+├── id_rsa          # Clé privée RSA
+├── id_rsa.pub      # Clé publique RSA
+├── company_key     # Clé personnalisée
+├── company_key.pub
+└── config          # Configuration SSH
+```
+
+### Algorithme de découverte
+
+xsshend scanne le répertoire `~/.ssh/` pour :
 
 1. **Crée automatiquement** le répertoire `~/.ssh/` si nécessaire
 2. **Informe l'utilisateur** de l'absence de clés SSH

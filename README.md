@@ -38,11 +38,14 @@ cargo install --path .
 - 🎯 **Barres de progression en temps réel** pour chaque serveur
 - 🔍 **Recherche intégrée** pour filtrer rapidement les serveurs
 - 🔐 **Authentification sécurisée** par clés SSH avec support agent SSH
-- 📊 **Configuration hiérarchique** des serveurs (environnements, régions, types)
+- � **Sélection interactive de clés SSH** avec découverte automatique
+- �📊 **Configuration hiérarchique** des serveurs (environnements, régions, types)
 - ⚡ **Performance optimisée** avec threading natif Rust
 - 🛡️ **Gestion d'erreurs robuste** avec rapports détaillés
 - 📁 **Support multi-fichiers** avec sélection interactive
 - 🎮 **Modes d'utilisation flexibles** : interface complète, interactif, ligne de commande
+- 🎨 **Thème adaptatif** : Détection automatique des thèmes clair/sombre du terminal
+- 🌈 **Interface optimisée** : Couleurs et contrastes adaptés pour une meilleure lisibilité
 
 ## 🎮 Interface utilisateur
 
@@ -111,6 +114,49 @@ cargo build --release
 # Installer globalement
 cargo install --path .
 ```
+
+## 🔑 Gestion des clés SSH
+
+### Détection automatique
+
+xsshend détecte automatiquement les clés SSH disponibles dans `~/.ssh/` :
+
+- Clés supportées : `id_ed25519`, `id_rsa`, `id_ecdsa`, `id_dsa`
+- Gestion des clés avec passphrase
+- Support complet de ssh-agent
+
+### Sélection interactive
+
+L'interface vous permet de choisir la clé SSH à utiliser :
+
+```
+🔑 Clés SSH disponibles
+────────────────────────
+✅ id_ed25519     (Ed25519 - Recommandé)
+🔑 id_rsa         (RSA 4096 bits)
+🔑 company_key    (RSA 2048 bits)
+```
+
+### Intégration ssh-agent
+
+Si aucune clé n'est sélectionnée, xsshend utilise automatiquement ssh-agent pour l'authentification.
+
+## 🎨 Thèmes et accessibilité
+
+### Détection automatique du thème
+
+xsshend s'adapte automatiquement au thème de votre terminal :
+
+- **Thème sombre** : Couleurs optimisées pour les fonds sombres
+- **Thème clair** : Contraste amélioré pour les fonds clairs
+- **Détection intelligente** : Utilise les APIs du terminal pour la détection
+
+### Lisibilité optimisée
+
+- Contraste automatique pour tous les éléments
+- Titres de panneaux bien visibles
+- Éléments non sélectionnés lisibles
+- Panneau d'aide avec bon contraste
 
 ## ⚙️ Configuration
 

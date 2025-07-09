@@ -4,11 +4,14 @@ use dirs::home_dir;
 use ssh2::{Session, Sftp};
 use std::path::Path;
 
+use super::keys::{SshKey, SshKeyManager};
+
 pub struct SshClient {
     session: Option<Session>,
     sftp: Option<Sftp>,
     host: String,
     username: String,
+    selected_key: Option<SshKey>,
 }
 
 impl SshClient {
@@ -19,6 +22,19 @@ impl SshClient {
             sftp: None,
             host: host.to_string(),
             username: username.to_string(),
+            selected_key: None,
+        })
+    }
+
+    /// Crée un nouveau client SSH avec une clé spécifique
+    #[allow(dead_code)]
+    pub fn new_with_key(host: &str, username: &str, key: SshKey) -> Result<Self> {
+        Ok(SshClient {
+            session: None,
+            sftp: None,
+            host: host.to_string(),
+            username: username.to_string(),
+            selected_key: Some(key),
         })
     }
 
@@ -93,18 +109,108 @@ impl SshClient {
 
     /// Authentification par clé SSH
     fn authenticate_with_key(&self, session: &mut Session) -> Result<()> {
-        // D'abord essayer l'authentification par agent SSH
+        // Si une clé spécifique est sélectionnée, l'utiliser en priorité
+        if let Some(ref selected_key) = self.selected_key {
+            log::info!(
+                "🔑 Utilisation de la clé sélectionnée: {}",
+                selected_key.description()
+            );
+
+            // Essayer d'abord ssh-agent avec cette clé
+            if let Ok(()) = session.userauth_agent(&self.username) {
+                log::info!(
+                    "✅ Authentification SSH-Agent réussie pour {}",
+                    self.username
+                );
+                return Ok(());
+            }
+
+            // Sinon utiliser directement le fichier de clé
+            return self.authenticate_with_specific_key(session, selected_key);
+        }
+
+        // Comportement par défaut: essayer ssh-agent puis les clés communes
         if let Ok(()) = session.userauth_agent(&self.username) {
-            log::info!("Authentification SSH-Agent réussie pour {}", self.username);
+            log::info!(
+                "✅ Authentification SSH-Agent réussie pour {}",
+                self.username
+            );
             return Ok(());
         }
 
+        log::debug!("🔑 SSH-Agent non disponible ou sans clés, essai des clés locales");
+
+        // Utiliser le gestionnaire de clés pour découvrir et essayer les clés disponibles
+        match SshKeyManager::new() {
+            Ok(key_manager) => {
+                let keys = key_manager.get_keys();
+
+                if keys.is_empty() {
+                    return self.authenticate_with_default_keys(session);
+                }
+
+                // Essayer chaque clé découverte
+                for key in keys {
+                    if let Ok(()) = self.authenticate_with_specific_key(session, key) {
+                        return Ok(());
+                    }
+                }
+
+                // Si toutes les clés découvertes ont échoué, essayer les clés par défaut
+                self.authenticate_with_default_keys(session)
+            }
+            Err(_) => {
+                // Fallback vers l'ancienne méthode si le gestionnaire de clés échoue
+                self.authenticate_with_default_keys(session)
+            }
+        }
+    }
+
+    /// Authentification avec une clé spécifique
+    fn authenticate_with_specific_key(&self, session: &mut Session, key: &SshKey) -> Result<()> {
+        log::debug!("🔑 Essai d'authentification avec {}", key.description());
+
+        let public_key_path = key
+            .public_key_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+
+        match session.userauth_pubkey_file(
+            &self.username,
+            public_key_path.as_ref().map(Path::new),
+            &key.private_key_path,
+            None,
+        ) {
+            Ok(()) => {
+                log::info!(
+                    "✅ Authentification réussie avec la clé {}",
+                    key.description()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                log::debug!(
+                    "❌ Échec authentification avec {} : {}",
+                    key.description(),
+                    e
+                );
+                Err(anyhow::anyhow!(
+                    "Authentification échouée avec {}: {}",
+                    key.description(),
+                    e
+                ))
+            }
+        }
+    }
+
+    /// Méthode de fallback pour l'authentification avec les clés par défaut
+    fn authenticate_with_default_keys(&self, session: &mut Session) -> Result<()> {
         let home = home_dir().context("Impossible de déterminer le répertoire home")?;
 
-        // Chemins des clés SSH par défaut
+        // Chemins des clés SSH par défaut (ordre de priorité)
         let private_key_paths = [
-            home.join(".ssh/id_rsa"),
             home.join(".ssh/id_ed25519"),
+            home.join(".ssh/id_rsa"),
             home.join(".ssh/id_ecdsa"),
         ];
 
@@ -263,6 +369,33 @@ impl SshClient {
         }
         self.session = None;
         self.sftp = None;
+        Ok(())
+    }
+
+    /// Permet de sélectionner une clé SSH spécifique
+    #[allow(dead_code)]
+    pub fn set_ssh_key(&mut self, key: SshKey) {
+        log::info!("🔑 Clé SSH sélectionnée: {}", key.description());
+        self.selected_key = Some(key);
+    }
+
+    /// Récupère la clé SSH actuellement sélectionnée
+    #[allow(dead_code)]
+    pub fn get_selected_key(&self) -> Option<&SshKey> {
+        self.selected_key.as_ref()
+    }
+
+    /// Permet à l'utilisateur de sélectionner une clé interactivement
+    #[allow(dead_code)]
+    pub fn select_ssh_key_interactive(&mut self) -> Result<()> {
+        let key_manager =
+            SshKeyManager::new().context("Impossible d'initialiser le gestionnaire de clés SSH")?;
+
+        if let Some(selected_key) = key_manager.select_key_interactive()? {
+            self.selected_key = Some(selected_key.clone());
+            log::info!("🔑 Clé sélectionnée: {}", selected_key.description());
+        }
+
         Ok(())
     }
 }

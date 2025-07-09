@@ -1,18 +1,31 @@
 use crate::core::parallel::TransferStatus;
 use crate::ui::app_state::AppState;
+use crate::ui::theme::{ThemeColors, ratatui_theme};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::Modifier,
     text::{Line, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{List, ListItem, ListState, Paragraph, Wrap},
 };
 
 /// Composant pour la sélection de fichiers
 pub struct FileSelectionScreen;
 
 impl FileSelectionScreen {
+    #[allow(dead_code)]
     pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
         // Layout principal
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -25,39 +38,33 @@ impl FileSelectionScreen {
             ])
             .split(area);
 
-        // Titre
+        // Titre avec couleurs du thème
         let title = Paragraph::new("📁 Sélection des fichiers")
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(Block::default().borders(Borders::ALL));
+            .style(ratatui_theme::title_primary_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, ""));
         f.render_widget(title, chunks[0]);
 
-        // Chemin actuel
+        // Chemin actuel avec couleurs du thème
         let current_path = Paragraph::new(format!("📂 {}", state.current_file_path))
-            .style(Style::default().fg(Color::Yellow))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Répertoire actuel"),
-            );
+            .style(ratatui_theme::text_secondary_style(theme_colors))
+            .block(ratatui_theme::secondary_block(
+                theme_colors,
+                "Répertoire actuel",
+            ));
         f.render_widget(current_path, chunks[1]);
 
         // Liste des fichiers disponibles
         if let Ok(files) = state.get_current_directory_files() {
-            let mut items = vec![ListItem::new("📁 ..").style(Style::default().fg(Color::Cyan))];
+            let mut items =
+                vec![ListItem::new("📁 ..").style(ratatui_theme::text_accent_style(theme_colors))];
 
             for file in &files {
                 let file_name = file.file_name().unwrap_or_default().to_string_lossy();
 
                 let style = if state.selected_files.contains(file) {
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD)
+                    ratatui_theme::success_style(theme_colors)
                 } else {
-                    Style::default().fg(Color::White)
+                    ratatui_theme::unselected_item_style(theme_colors)
                 };
 
                 let icon = if state.selected_files.contains(file) {
@@ -69,16 +76,11 @@ impl FileSelectionScreen {
             }
 
             let files_list = List::new(items)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Fichiers (Espace pour sélectionner)"),
-                )
-                .highlight_style(
-                    Style::default()
-                        .bg(Color::Blue)
-                        .add_modifier(Modifier::BOLD),
-                );
+                .block(ratatui_theme::themed_block(
+                    theme_colors,
+                    "Fichiers (Espace pour sélectionner)",
+                ))
+                .highlight_style(ratatui_theme::selection_style(theme_colors));
 
             // État de la liste avec curseur
             let mut list_state = ListState::default();
@@ -118,8 +120,8 @@ impl FileSelectionScreen {
         };
 
         let selected_files = Paragraph::new(selected_text)
-            .style(Style::default().fg(Color::Green))
-            .block(Block::default().borders(Borders::ALL).title("Sélectionnés"))
+            .style(ratatui_theme::success_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Sélectionnés"))
             .wrap(Wrap { trim: true });
         f.render_widget(selected_files, chunks[3]);
 
@@ -127,8 +129,8 @@ impl FileSelectionScreen {
         let instructions = Paragraph::new(
             "🗂️ Fichiers: ↑↓ Naviguer | Espace: Sélectionner | Entrée: Dossier parent | h: Home\n📁 Sélection: a: Tout | c: Vider | Tab: Serveurs → | Esc: Reset | q: Quitter"
         )
-        .style(Style::default().fg(Color::Gray))
-        .block(Block::default().borders(Borders::ALL).title("Aide"))
+        .style(ratatui_theme::help_text_style(theme_colors))
+        .block(ratatui_theme::themed_block(theme_colors, "Aide"))
         .wrap(Wrap { trim: true });
         f.render_widget(instructions, chunks[4]);
     }
@@ -138,7 +140,19 @@ impl FileSelectionScreen {
 pub struct ServerSelectionScreen;
 
 impl ServerSelectionScreen {
+    #[allow(dead_code)]
     pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
         // Si le sélecteur hiérarchique n'est pas initialisé, afficher un message
         if let Some(ref selector) = state.hierarchical_selector {
             let chunks = Layout::default()
@@ -150,14 +164,10 @@ impl ServerSelectionScreen {
                 ])
                 .split(area);
 
-            // Titre
+            // Titre avec couleurs du thème
             let title = Paragraph::new("🌳 Sélection hiérarchique des serveurs")
-                .style(
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                )
-                .block(Block::default().borders(Borders::ALL));
+                .style(ratatui_theme::title_primary_style(theme_colors))
+                .block(ratatui_theme::primary_block(theme_colors, ""));
             f.render_widget(title, chunks[0]);
 
             // Résumé des fichiers sélectionnés
@@ -177,24 +187,23 @@ impl ServerSelectionScreen {
             );
 
             let files_info = Paragraph::new(files_summary)
-                .style(Style::default().fg(Color::Yellow))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("Fichiers à téléverser"),
-                )
+                .style(ratatui_theme::help_text_style(theme_colors))
+                .block(ratatui_theme::secondary_block(
+                    theme_colors,
+                    "Fichiers à téléverser",
+                ))
                 .wrap(Wrap { trim: true });
             f.render_widget(files_info, chunks[1]);
 
-            // Rendu du sélecteur hiérarchique
-            selector.render(f, chunks[2]);
+            // Rendu du sélecteur hiérarchique avec thème
+            selector.render_with_theme(f, chunks[2], theme_colors);
         } else {
             // Affichage de fallback si le sélecteur n'est pas initialisé
             let error_msg = Paragraph::new(
                 "❌ Erreur: Sélecteur hiérarchique non initialisé\n\nAppuyez sur 'q' pour quitter",
             )
-            .style(Style::default().fg(Color::Red))
-            .block(Block::default().borders(Borders::ALL).title("Erreur"))
+            .style(ratatui_theme::error_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, "Erreur"))
             .wrap(Wrap { trim: true });
             f.render_widget(error_msg, area);
         }
@@ -205,86 +214,86 @@ impl ServerSelectionScreen {
 pub struct DestinationInputScreen;
 
 impl DestinationInputScreen {
+    #[allow(dead_code)]
     pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
+        // Layout principal avec instructions agrandies
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(3), // Titre
-                Constraint::Length(5), // Résumé fichiers
-                Constraint::Length(5), // Résumé serveurs
-                Constraint::Length(5), // Saisie destination
-                Constraint::Length(8), // Exemples et variables
-                Constraint::Length(4), // Instructions
+                Constraint::Length(4), // Fichiers
+                Constraint::Length(4), // Serveurs sélectionnés
+                Constraint::Length(3), // Saisie de destination
+                Constraint::Length(5), // Exemples
+                Constraint::Length(3), // Instructions
             ])
             .split(area);
 
-        // Titre
-        let title = Paragraph::new("📂 Destination des fichiers")
-            .style(
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(Block::default().borders(Borders::ALL));
+        // Titre avec couleurs du thème
+        let title = Paragraph::new("📝 Saisie du répertoire de destination")
+            .style(ratatui_theme::title_primary_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, ""));
         f.render_widget(title, chunks[0]);
 
-        // Résumé des fichiers
-        let total_size: u64 = state
-            .selected_files
-            .iter()
-            .filter_map(|f| std::fs::metadata(f).ok())
-            .map(|m| m.len())
-            .sum();
-
-        let files_summary = format!(
-            "📄 {} fichier(s) sélectionné(s) - Taille totale: {}",
+        // Résumé des fichiers avec couleurs du thème
+        let files_text = format!(
+            "📄 {} fichier(s) sélectionné(s): {}",
             state.selected_files.len(),
-            crate::ui::app_state::format_bytes(total_size)
+            state
+                .selected_files
+                .iter()
+                .take(2)
+                .map(|f| f.file_name().unwrap_or_default().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
 
-        let files_info = Paragraph::new(files_summary)
-            .style(Style::default().fg(Color::Yellow))
-            .block(Block::default().borders(Borders::ALL).title("Fichiers"));
+        let files_info = Paragraph::new(files_text)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Fichiers"))
+            .wrap(Wrap { trim: true });
         f.render_widget(files_info, chunks[1]);
 
-        // Résumé des serveurs
-        let servers_summary = format!(
-            "🖥️ {} serveur(s) sélectionné(s): {}",
+        // Résumé des serveurs sélectionnés avec couleurs du thème
+        let servers_text = format!(
+            "🌐 {} serveur(s) sélectionné(s): {}",
             state.selected_hosts.len(),
             state
                 .selected_hosts
                 .iter()
                 .take(3)
-                .map(|(name, _)| name.as_str())
+                .map(|(name, _)| name.clone())
                 .collect::<Vec<_>>()
                 .join(", ")
         );
 
-        let servers_info = Paragraph::new(servers_summary)
-            .style(Style::default().fg(Color::Green))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Serveurs cibles"),
-            );
+        let servers_info = Paragraph::new(servers_text)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Serveurs"));
         f.render_widget(servers_info, chunks[2]);
 
-        // Saisie de destination avec curseur visuel
+        // Saisie de destination avec curseur visuel et couleurs du thème
         let destination_display = format!("📂 {}_", state.destination_input);
         let destination_input = Paragraph::new(destination_display)
-            .style(
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Répertoire de destination"),
-            );
+            .style(ratatui_theme::text_style(theme_colors).add_modifier(Modifier::BOLD))
+            .block(ratatui_theme::themed_block(
+                theme_colors,
+                "Répertoire de destination",
+            ));
         f.render_widget(destination_input, chunks[3]);
 
-        // Exemples de chemins de destination
+        // Exemples de chemins de destination avec couleurs du thème
         let examples_text = "💡 Exemples de chemins :\n\
             • /tmp/uploads/           (répertoire simple)\n\
             • /opt/apps/              (applications)\n\
@@ -294,21 +303,20 @@ impl DestinationInputScreen {
             .to_string();
 
         let examples = Paragraph::new(examples_text)
-            .style(Style::default().fg(Color::Gray))
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Exemples de chemins de destination"),
-            )
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(
+                theme_colors,
+                "Exemples de chemins de destination",
+            ))
             .wrap(Wrap { trim: true });
         f.render_widget(examples, chunks[4]);
 
-        // Instructions de saisie
+        // Instructions de saisie avec couleurs du thème
         let instructions_text = "📝 Saisie: Tapez votre chemin | Backspace: Effacer (ou retour si vide) | Esc: Vider OU Reset\n🚀 Raccourcis: F1=/home | F2=/tmp | F3=/opt | Entrée/Tab: Continuer → | q: Quitter".to_string();
 
         let instructions = Paragraph::new(instructions_text)
-            .style(Style::default().fg(Color::Gray))
-            .block(Block::default().borders(Borders::ALL).title("Contrôles"))
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(theme_colors, "Contrôles"))
             .wrap(Wrap { trim: true });
         f.render_widget(instructions, chunks[5]);
     }
@@ -318,7 +326,19 @@ impl DestinationInputScreen {
 pub struct ProgressScreen;
 
 impl ProgressScreen {
+    #[allow(dead_code)]
     pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
         let chunks = if state.show_logs {
             Layout::default()
                 .direction(Direction::Vertical)
@@ -370,111 +390,78 @@ impl ProgressScreen {
             } else {
                 0.0
             },
-            if total_speed > 0.0 {
-                crate::ui::app_state::format_bytes(total_speed as u64)
-            } else {
-                "0 B".to_string()
-            }
+            crate::ui::app_state::format_bytes(total_speed as u64)
         );
 
-        let title_color = if all_complete {
-            if failed > 0 { Color::Red } else { Color::Green }
+        let header_style = if all_complete {
+            if failed > 0 {
+                ratatui_theme::error_style(theme_colors)
+            } else {
+                ratatui_theme::success_style(theme_colors)
+            }
         } else {
-            Color::Cyan
+            ratatui_theme::text_accent_style(theme_colors)
         };
 
         let header = Paragraph::new(stats_text)
-            .style(
-                Style::default()
-                    .fg(title_color)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("État des transferts"),
-            );
+            .style(header_style)
+            .block(ratatui_theme::primary_block(
+                theme_colors,
+                "📊 Progression générale",
+            ))
+            .wrap(Wrap { trim: true });
         f.render_widget(header, chunks[0]);
 
-        // Liste des transferts avec détails améliorés
+        // Liste des transferts avec couleurs du thème
         let mut transfer_items = Vec::new();
-        for (host_name, progress) in &state.transfers {
-            let progress_bar =
-                Self::create_progress_bar(progress.bytes_transferred, progress.total_bytes);
-            let percentage = if progress.total_bytes > 0 {
-                (progress.bytes_transferred as f64 / progress.total_bytes as f64 * 100.0) as u32
-            } else {
-                0
+        for (key, transfer) in &state.transfers {
+            let (server, file) = match key.split_once("::") {
+                Some((s, f)) => (s, f),
+                None => ("", key.as_str()),
             };
 
-            let speed_text = if progress.speed > 0.0 {
-                format!(
-                    " - {}/s",
-                    crate::ui::app_state::format_bytes(progress.speed as u64)
-                )
-            } else {
-                String::new()
-            };
-
-            let eta_text = if let Some(eta) = progress.eta {
-                format!(" - ETA: {}s", eta.as_secs())
-            } else {
-                String::new()
-            };
-
-            let status_icon = match &progress.status {
+            let status_icon = match transfer.status {
                 TransferStatus::Pending => "⏳",
-                TransferStatus::Connecting => "🔄",
-                TransferStatus::Transferring => "📤",
+                TransferStatus::Connecting => "�",
+                TransferStatus::Transferring => "🚀",
                 TransferStatus::Completed => "✅",
                 TransferStatus::Failed(_) => "❌",
             };
 
-            let host_display = format!("{} ({})", host_name, progress.host_alias);
-            let progress_display = format!(
-                "{} / {} ({}%)",
-                crate::ui::app_state::format_bytes(progress.bytes_transferred),
-                crate::ui::app_state::format_bytes(progress.total_bytes),
-                percentage
-            );
-
-            // Affichage amélioré avec nom du fichier et flèche
-            let file_display =
-                if !progress.file_name.is_empty() && progress.file_name != "En attente..." {
-                    format!("{} → ", progress.file_name)
-                } else {
-                    String::new()
-                };
+            let progress_bar =
+                Self::create_progress_bar(transfer.bytes_transferred, transfer.total_bytes);
+            let percentage = if transfer.total_bytes > 0 {
+                (transfer.bytes_transferred as f64 / transfer.total_bytes as f64) * 100.0
+            } else {
+                0.0
+            };
 
             let line_text = format!(
-                "{} {}{} [{}] {}{}{}",
+                "{} {} → {} [{:.1}%] {} {}/{}",
                 status_icon,
-                file_display,
-                host_display,
+                file,
+                server,
+                percentage,
                 progress_bar,
-                progress_display,
-                speed_text,
-                eta_text
+                crate::ui::app_state::format_bytes(transfer.bytes_transferred),
+                crate::ui::app_state::format_bytes(transfer.total_bytes)
             );
 
-            let item_style = Style::default().fg(progress.status.color());
-            if let Some(error) = &progress.error_message {
-                // Afficher l'erreur sur une ligne séparée
-                transfer_items.push(ListItem::new(line_text).style(item_style));
-                transfer_items.push(
-                    ListItem::new(format!("   ↳ Erreur: {}", error))
-                        .style(Style::default().fg(Color::Red)),
-                );
-            } else {
-                transfer_items.push(ListItem::new(line_text).style(item_style));
-            }
+            let item_style = match transfer.status {
+                TransferStatus::Completed => ratatui_theme::success_style(theme_colors),
+                TransferStatus::Failed(_) => ratatui_theme::error_style(theme_colors),
+                TransferStatus::Transferring => ratatui_theme::text_accent_style(theme_colors),
+                TransferStatus::Connecting => ratatui_theme::warning_style(theme_colors),
+                TransferStatus::Pending => ratatui_theme::unselected_item_style(theme_colors),
+            };
+
+            transfer_items.push(ListItem::new(line_text).style(item_style));
         }
 
-        let transfers_list = List::new(transfer_items).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Détails des transferts"),
-        );
+        let transfers_list = List::new(transfer_items).block(ratatui_theme::themed_block(
+            theme_colors,
+            "Détails des transferts",
+        ));
         f.render_widget(transfers_list, chunks[1]);
 
         // Logs si activés
@@ -489,8 +476,8 @@ impl ProgressScreen {
                 .collect();
 
             let logs_list = List::new(log_items)
-                .block(Block::default().borders(Borders::ALL).title("Logs"))
-                .style(Style::default().fg(Color::Gray));
+                .block(ratatui_theme::themed_block(theme_colors, "Logs"))
+                .style(ratatui_theme::help_text_style(theme_colors));
             f.render_widget(logs_list, chunks[2]);
         }
 
@@ -502,8 +489,8 @@ impl ProgressScreen {
         };
 
         let instructions = Paragraph::new(instructions_text)
-            .style(Style::default().fg(Color::Gray))
-            .block(Block::default().borders(Borders::ALL).title("Contrôles"));
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(theme_colors, "Contrôles"));
         f.render_widget(instructions, chunks[chunks.len() - 1]);
     }
 
@@ -517,5 +504,157 @@ impl ProgressScreen {
         let empty = 20 - filled;
 
         format!("{}{}", "█".repeat(filled), "░".repeat(empty))
+    }
+}
+
+/// Composant pour la sélection de clé SSH
+pub struct SshKeySelectionScreen;
+
+impl SshKeySelectionScreen {
+    #[allow(dead_code)]
+    pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
+        // Layout principal
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Titre
+                Constraint::Length(4), // Fichiers sélectionnés
+                Constraint::Min(8),    // Liste des clés SSH
+                Constraint::Length(5), // Description de la clé sélectionnée
+                Constraint::Length(4), // Instructions
+            ])
+            .split(area);
+
+        // Titre avec couleurs du thème
+        let title = Paragraph::new("🔑 Sélection de la clé SSH")
+            .style(ratatui_theme::title_primary_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, ""));
+        f.render_widget(title, chunks[0]);
+
+        // Résumé des fichiers sélectionnés
+        let files_summary = format!(
+            "📄 {} fichier(s) sélectionné(s): {}",
+            state.selected_files.len(),
+            state
+                .selected_files
+                .iter()
+                .take(2)
+                .map(|f| f.file_name().unwrap_or_default().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let files_info = Paragraph::new(files_summary)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Fichiers"))
+            .wrap(Wrap { trim: true });
+        f.render_widget(files_info, chunks[1]);
+
+        // Liste des clés SSH disponibles
+        let ssh_keys_items: Vec<ListItem> = state
+            .available_ssh_keys
+            .iter()
+            .enumerate()
+            .map(|(i, key)| {
+                let icon = if state.selected_ssh_key.as_ref() == Some(key) {
+                    "✅"
+                } else if i == state.ssh_key_selection_cursor {
+                    "👉"
+                } else {
+                    "🔑"
+                };
+
+                let text = format!("{} {}", icon, key.description());
+
+                let style = if state.selected_ssh_key.as_ref() == Some(key) {
+                    ratatui_theme::success_style(theme_colors)
+                } else if i == state.ssh_key_selection_cursor {
+                    ratatui_theme::selection_style(theme_colors)
+                } else {
+                    ratatui_theme::text_style(theme_colors)
+                };
+
+                ListItem::new(text).style(style)
+            })
+            .collect();
+
+        let no_keys_msg = if state.available_ssh_keys.is_empty() {
+            vec![
+                ListItem::new("❌ Aucune clé SSH trouvée dans ~/.ssh")
+                    .style(ratatui_theme::error_style(theme_colors)),
+            ]
+        } else {
+            ssh_keys_items
+        };
+
+        let ssh_keys_list = List::new(no_keys_msg)
+            .block(ratatui_theme::themed_block(
+                theme_colors,
+                "Clés SSH disponibles",
+            ))
+            .highlight_style(ratatui_theme::selection_style(theme_colors));
+
+        // Afficher avec curseur
+        let mut list_state = ListState::default();
+        if !state.available_ssh_keys.is_empty() {
+            list_state.select(Some(state.ssh_key_selection_cursor));
+        }
+        f.render_stateful_widget(ssh_keys_list, chunks[2], &mut list_state);
+
+        // Description de la clé sélectionnée ou en cours de survol
+        let description_text = if let Some(current_key) =
+            state.available_ssh_keys.get(state.ssh_key_selection_cursor)
+        {
+            let selected_indicator = if state.selected_ssh_key.as_ref() == Some(current_key) {
+                " ✅ SÉLECTIONNÉE"
+            } else {
+                ""
+            };
+
+            format!(
+                "🔑 Nom: {}\n📁 Chemin: {}\n🔧 Type: {}\n💬 Commentaire: {}{}",
+                current_key.name,
+                current_key.private_key_path.display(),
+                current_key.key_type,
+                current_key.comment.as_deref().unwrap_or("Aucun"),
+                selected_indicator
+            )
+        } else if state.available_ssh_keys.is_empty() {
+            "❌ Aucune clé SSH disponible.\n\nAssurez-vous d'avoir des clés SSH dans ~/.ssh/\n(ex: id_ed25519, id_rsa, etc.)".to_string()
+        } else {
+            "Sélectionnez une clé SSH avec les flèches ↑↓".to_string()
+        };
+
+        let description = Paragraph::new(description_text)
+            .style(ratatui_theme::text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(
+                theme_colors,
+                "Détails de la clé",
+            ))
+            .wrap(Wrap { trim: true });
+        f.render_widget(description, chunks[3]);
+
+        // Instructions
+        let instructions_text = if state.available_ssh_keys.is_empty() {
+            "❌ Aucune clé disponible | Tab: Continuer (utilisation ssh-agent) | Esc: Retour | q: Quitter"
+        } else {
+            "🔑 Clés: ↑↓ Naviguer | Espace/Entrée: Sélectionner | Tab: Continuer → | s: Passer | Esc: Retour | q: Quitter"
+        };
+
+        let instructions = Paragraph::new(instructions_text)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(theme_colors, "Contrôles"));
+        f.render_widget(instructions, chunks[4]);
     }
 }

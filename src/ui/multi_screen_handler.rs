@@ -44,6 +44,7 @@ impl MultiScreenEventHandler {
         // Gestion par écran
         match state.current_screen {
             AppScreen::FileSelection => Self::handle_file_selection(state, key_event)?,
+            AppScreen::SshKeySelection => Self::handle_ssh_key_selection(state, key_event)?,
             AppScreen::ServerSelection => Self::handle_server_selection(state, key_event)?,
             AppScreen::DestinationInput => Self::handle_destination_input(state, key_event)?,
             AppScreen::UploadProgress => Self::handle_upload_progress(state, key_event)?,
@@ -276,6 +277,37 @@ impl MultiScreenEventHandler {
                 } else if !transfer_names.is_empty() {
                     state.selected_transfer = Some(transfer_names[0].clone());
                 }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Gestion des événements pour l'écran de sélection de clé SSH
+    fn handle_ssh_key_selection(state: &mut AppState, key_event: KeyEvent) -> Result<()> {
+        match key_event.code {
+            KeyCode::Up => {
+                state.ssh_key_cursor_up();
+            }
+            KeyCode::Down => {
+                state.ssh_key_cursor_down();
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                // Sélectionner la clé courante
+                state.select_current_ssh_key();
+            }
+            KeyCode::Tab => {
+                // Passer à l'écran suivant
+                state.next_screen()?;
+            }
+            KeyCode::Char('s') => {
+                // Passer la sélection de clé SSH
+                state.skip_ssh_key_selection();
+                state.next_screen()?;
+            }
+            KeyCode::Esc => {
+                // Retour à l'écran précédent
+                state.previous_screen();
             }
             _ => {}
         }
