@@ -1,9 +1,0 @@
-/target
-.github/copilot-instructions.md
-
-# Fichiers temporaires
-*.tmp
-*.temp
-hosts_*.json
-*.backup
-/test

@@ -1,8 +1,10 @@
-# Configuration de xsshend
+# ⚙️ Configuration de xsshend
 
-## Fichier de configuration principal
+> Guide complet pour configurer et personnaliser xsshend selon vos besoins
 
-Le fichier de configuration se trouve dans `~/.ssh/hosts.json` et définit votre infrastructure de serveurs.
+## 📁 Fichier de configuration principal
+
+Le fichier de configuration se trouve dans `~/.ssh/hosts.json` et définit votre infrastructure de serveurs SSH de manière hiérarchique.
 
 ### Structure hiérarchique
 

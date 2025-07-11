@@ -1,8 +1,48 @@
-# Guide d'utilisation de xsshend
+# 📖 Guide d'utilisation de xsshend
 
-## Vue d'ensemble
+> Guide complet pour maîtriser xsshend - Téléversement SSH parallèle avec interface TUI moderne
 
-xsshend est un outil de téléversement multi-SSH avec une interface utilisateur hiérarchique moderne. Il permet de sélectionner facilement des fichiers et des serveurs via une interface TUI intuitive et de transférer les fichiers en parallèle.
+## 🎯 Vue d'ensemble
+
+xsshend est un outil Rust moderne pour le téléversement parallèle de fichiers vers multiples serveurs SSH. Il offre une interface TUI hiérarchique intuitive avec suivi en temps réel des transferts.
+
+## 🚀 Installation et premier lancement
+
+### Installation via Cargo
+
+```bash
+cargo install xsshend
+```
+
+### Premier lancement
+
+```bash
+# Lancement initial - crée automatiquement la configuration
+xsshend list
+```
+
+## ⚙️ Configuration automatique
+
+Au premier lancement, xsshend :
+
+1. **Détecte** l'absence du fichier `~/.ssh/hosts.json`
+2. **Crée automatiquement** le répertoire `~/.ssh` si nécessaire  
+3. **Copie** un fichier d'exemple vers `~/.ssh/hosts.json`
+4. **Vérifie** la présence de clés SSH
+5. **Propose** la génération d'une clé Ed25519 si aucune n'est trouvée
+6. **Guide** l'utilisateur dans la configuration
+
+### Structure créée automatiquement
+
+```
+~/.ssh/
+├── hosts.json          # Configuration serveurs (créé automatiquement)
+├── id_ed25519          # Clé privée SSH (générée si acceptée)
+├── id_ed25519.pub      # Clé publique SSH
+└── config              # Configuration SSH (optionnel)
+```
+
+## 🎮 Premiers transferts
 
 ## Interface de listage avec étiquettes CLI
 
