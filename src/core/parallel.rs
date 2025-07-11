@@ -1,5 +1,6 @@
 // Module de pool de connexions SSH pour optimiser les transferts parallèles
 use crate::ssh::client::SshClient;
+use crate::ssh::keys::SshKey;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -37,6 +38,8 @@ pub struct SshConnectionPool {
     active_connections: Arc<Mutex<HashMap<String, SshClient>>>,
     /// Statistiques de connexions
     stats: Arc<Mutex<PoolStats>>,
+    /// Clé SSH optionnelle à utiliser pour toutes les connexions
+    ssh_key: Option<SshKey>,
 }
 
 #[derive(Debug, Default)]
@@ -53,6 +56,17 @@ impl SshConnectionPool {
             connection_info: HashMap::new(),
             active_connections: Arc::new(Mutex::new(HashMap::new())),
             stats: Arc::new(Mutex::new(PoolStats::default())),
+            ssh_key: None,
+        }
+    }
+
+    /// Créer un nouveau pool de connexions avec une clé SSH spécifique
+    pub fn new_with_key(ssh_key: SshKey) -> Self {
+        SshConnectionPool {
+            connection_info: HashMap::new(),
+            active_connections: Arc::new(Mutex::new(HashMap::new())),
+            stats: Arc::new(Mutex::new(PoolStats::default())),
+            ssh_key: Some(ssh_key),
         }
     }
 
@@ -89,8 +103,20 @@ impl SshConnectionPool {
             stats.connections_created += 1;
         }
 
-        let mut client = SshClient::new(&info.host, &info.username)
-            .with_context(|| format!("Impossible de créer le client SSH pour {}", server_alias))?;
+        let mut client = if let Some(ref ssh_key) = self.ssh_key {
+            // Utiliser la clé SSH spécifiée
+            log::info!(
+                "🔑 Utilisation de la clé spécifiée: {} pour {}@{}",
+                ssh_key.description(),
+                info.username,
+                info.host
+            );
+            SshClient::new_with_key(&info.host, &info.username, ssh_key.clone())
+        } else {
+            // Utiliser le comportement par défaut
+            SshClient::new(&info.host, &info.username)
+        }
+        .with_context(|| format!("Impossible de créer le client SSH pour {}", server_alias))?;
 
         // Tentative de connexion avec retry pour plus de robustesse et timeout réduit
         let mut attempts = 0;

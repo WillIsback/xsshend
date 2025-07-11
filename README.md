@@ -27,6 +27,7 @@ cargo install --path .
 
 - [**Documentation complète**](https://willisback.github.io/xsshend/)
 - [Guide d'utilisation](docs/usage.md)
+- [Sélection des clés SSH](docs/ssh-key-selection.md)
 - [Configuration automatique](docs/auto-configuration.md)
 - [Gestion des clés SSH](docs/ssh-key-management.md)
 - [Optimisation](docs/optimization.md)
@@ -38,8 +39,9 @@ cargo install --path .
 - 🎯 **Barres de progression en temps réel** pour chaque serveur
 - 🔍 **Recherche intégrée** pour filtrer rapidement les serveurs
 - 🔐 **Authentification sécurisée** par clés SSH avec support agent SSH
-- � **Sélection interactive de clés SSH** avec découverte automatique
-- �📊 **Configuration hiérarchique** des serveurs (environnements, régions, types)
+- 🔑 **Sélection interactive de clés SSH** avec découverte automatique
+- 🎛️ **Sélection CLI de clés SSH** avec options `--ssh-key` et `--ssh-key-interactive`
+- 📊 **Configuration hiérarchique** des serveurs (environnements, régions, types)
 - ⚡ **Performance optimisée** avec threading natif Rust
 - 🛡️ **Gestion d'erreurs robuste** avec rapports détaillés
 - 📁 **Support multi-fichiers** avec sélection interactive
@@ -125,21 +127,35 @@ xsshend détecte automatiquement les clés SSH disponibles dans `~/.ssh/` :
 - Gestion des clés avec passphrase
 - Support complet de ssh-agent
 
-### Sélection interactive
+### Sélection de clés en ligne de commande
 
-L'interface vous permet de choisir la clé SSH à utiliser :
+```bash
+# Sélection interactive - affiche un menu pour choisir parmi les clés disponibles
+xsshend upload file.txt --ssh-key-interactive
 
+# Spécification directe par nom de fichier (sans extension)
+xsshend upload file.txt --ssh-key id_ed25519
+xsshend upload file.txt --ssh-key company_key
+
+# Sélection automatique forcée de la meilleure clé (Ed25519 > RSA > ECDSA)
+xsshend upload file.txt --ssh-key-auto
+
+# Comportement par défaut : sélection intelligente
+xsshend upload file.txt
+# Affiche les clés détectées et sélectionne automatiquement la meilleure
+# Suggère l'utilisation de --ssh-key-interactive pour un choix manuel
 ```
-🔑 Clés SSH disponibles
-────────────────────────
-✅ id_ed25519     (Ed25519 - Recommandé)
-🔑 id_rsa         (RSA 4096 bits)
-🔑 company_key    (RSA 2048 bits)
-```
+
+### Priorité de sélection automatique
+
+1. **Ed25519** - Recommandé pour la sécurité et les performances
+2. **RSA** - Compatibilité étendue
+3. **ECDSA** - Alternative moderne
+4. **Autres** - Support basique
 
 ### Intégration ssh-agent
 
-Si aucune clé n'est sélectionnée, xsshend utilise automatiquement ssh-agent pour l'authentification.
+Si aucune clé n'est sélectionnée ou disponible, xsshend utilise automatiquement ssh-agent pour l'authentification.
 
 ## 🎨 Thèmes et accessibilité
 
@@ -258,6 +274,20 @@ xsshend upload ./regional-config.json --env Production --region Region-A
 
 # Filtrage combiné environnement + type
 xsshend upload ./app.war --env Production --type Public
+
+# Gestion des clés SSH - nouvelles options!
+# Sélection interactive de la clé SSH
+xsshend upload file.txt --ssh-key-interactive
+
+# Spécifier une clé SSH par nom (sans extension)
+xsshend upload file.txt --ssh-key id_rsa
+xsshend upload file.txt --ssh-key company_key
+
+# Forcer la sélection automatique de la meilleure clé
+xsshend upload file.txt --ssh-key-auto
+
+# Par défaut : sélection intelligente avec suggestion
+xsshend upload file.txt  # Sélectionne automatiquement la meilleure clé disponible
 ```
 
 ### 4. Lister les serveurs avec étiquettes hiérarchiques

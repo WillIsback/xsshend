@@ -15,7 +15,7 @@ pub struct TransferProgress {
     pub status: TransferStatus,
     pub bytes_transferred: u64,
     pub total_bytes: u64,
-    pub speed: f64, // octets/seconde
+    pub speed: f64,        // octets/seconde
     pub file_name: String, // Nom du fichier en cours de transfert
     pub eta: Option<Duration>,
     pub error_message: Option<String>,

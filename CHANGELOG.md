@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.2.1] - 2025-07-11
+
+### Ajouté
+
+- **🔑 Sélection CLI de clés SSH** : Options `--ssh-key` et `--ssh-key-interactive` pour choisir une clé SSH spécifique en ligne de commande
+- **🤖 Sélection automatique intelligente** : Détection et proposition automatique de la meilleure clé SSH disponible
+- **🎯 Intégration complète clés SSH** : Support des clés spécifiées dans le pool de connexions SSH
+- **💬 Messages informatifs** : Affichage clair de la clé SSH utilisée pour chaque connexion
+
+### Amélioré
+
+- **🔧 Gestionnaire de clés SSH** : Amélioration de la découverte et sélection des clés
+- **📋 Aide CLI** : Documentation des nouvelles options de clés SSH
+- **🔗 Intégration uploader** : Support des clés SSH spécifiées dans l'orchestrateur de téléversement
+- **⚡ Pool de connexions** : Prise en compte des clés SSH spécifiées pour les connexions
+
+### Corrigé
+
+- **🐛 Problème clé par défaut** : Les clés spécifiées en CLI sont maintenant correctement utilisées
+- **🔑 Sélection Ed25519** : La clé Ed25519 n'est plus forcée si une autre clé est spécifiée
+- **❌ Échecs d'authentification** : Meilleure gestion des erreurs d'authentification avec clés spécifiques
+
+### Technique
+
+- **📦 Nouvelle dépendance** : `atty` pour la détection de terminal interactif
+- **🏗️ Architecture uploader** : Support des clés SSH dans `SshConnectionPool`
+- **🔧 API étendue** : Nouvelles méthodes `new_with_key()` pour uploader et pool
+
 ## [0.2.0] - 2025-07-09
 
 ### Ajouté

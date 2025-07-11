@@ -1,6 +1,6 @@
 [package]
 name = "xsshend"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Outil Rust de téléversement multi-SSH avec interface TUI adaptive et gestion de clés SSH"
 license = "MIT"
@@ -37,6 +37,9 @@ tokio = { version = "1.45", features = ["full"] }
 # Sécurité
 rpassword = "7.3"
 dirs = "5.0"
+
+# Détection de terminal
+atty = "0.2"
 
 # Utilitaires
 anyhow = "1.0"

@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     // Ne pas initialiser de logger ici - sera fait selon le mode
 
     let app = Command::new("xsshend")
-        .version("0.1.0")
+        .version("0.2.1")
         .about("Outil Rust de téléversement multi-SSH avec interface TUI")
         // Arguments globaux pour mode interactif direct
         .arg(
@@ -113,6 +113,13 @@ fn main() -> Result<()> {
                         .long("ssh-key-interactive")
                         .help("Sélection interactive de la clé SSH à utiliser")
                         .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("ssh-key-auto")
+                        .long("ssh-key-auto")
+                        .help("Force la sélection automatique de la meilleure clé SSH disponible")
+                        .action(clap::ArgAction::SetTrue)
+                        .conflicts_with_all(["ssh-key", "ssh-key-interactive"]),
                 ),
         )
         .subcommand(Command::new("list").about("Liste les serveurs disponibles"));
@@ -298,9 +305,72 @@ fn main() -> Result<()> {
                         std::process::exit(1);
                     }
                 }
+            } else if sub_matches.get_flag("ssh-key-auto") {
+                // Force la sélection automatique de la meilleure clé
+                println!("🔑 Sélection automatique forcée de la clé SSH...");
+                use crate::ssh::keys::SshKeyManager;
+
+                let key_manager = match SshKeyManager::new() {
+                    Ok(manager) => manager,
+                    Err(e) => {
+                        log::error!(
+                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
+                            e
+                        );
+                        std::process::exit(1);
+                    }
+                };
+
+                if let Some(best_key) = key_manager.select_best_key() {
+                    println!("✅ Clé SSH sélectionnée: {}", best_key.description());
+                    Some(best_key.clone())
+                } else {
+                    println!("⚠️ Aucune clé SSH trouvée");
+                    None
+                }
             } else {
-                // Pas de clé spécifiée, utiliser le comportement par défaut (ssh-agent)
-                None
+                // Mode automatique avec proposition de sélection si plusieurs clés
+                use crate::ssh::keys::SshKeyManager;
+
+                match SshKeyManager::new() {
+                    Ok(key_manager) => {
+                        let keys = key_manager.get_keys();
+                        match keys.len().cmp(&1) {
+                            std::cmp::Ordering::Greater => {
+                                println!("🔑 Plusieurs clés SSH détectées.");
+
+                                // Proposer la sélection interactive si possible
+                                println!(
+                                    "🤔 Sélection automatique de la meilleure clé, ou utilisez --ssh-key-interactive pour choisir manuellement"
+                                );
+
+                                // Utiliser la détection automatique de la meilleure clé
+                                if let Some(best_key) = key_manager.select_best_key() {
+                                    println!(
+                                        "🔑 Clé sélectionnée automatiquement: {}",
+                                        best_key.description()
+                                    );
+                                    Some(best_key.clone())
+                                } else {
+                                    None
+                                }
+                            }
+                            std::cmp::Ordering::Equal => {
+                                let key = &keys[0];
+                                println!("🔑 Clé SSH unique trouvée: {}", key.description());
+                                Some(key.clone())
+                            }
+                            std::cmp::Ordering::Less => {
+                                println!("🔑 Aucune clé SSH trouvée, utilisation de ssh-agent");
+                                None
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        // Pas de clé spécifiée, utiliser le comportement par défaut (ssh-agent)
+                        None
+                    }
+                }
             };
 
             // Destination et fichiers
@@ -308,13 +378,12 @@ fn main() -> Result<()> {
             let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
 
             // Créer l'uploader
-            let mut uploader = Uploader::new();
-
-            // Si une clé SSH spécifique a été sélectionnée, l'indiquer
-            if let Some(ref key) = selected_ssh_key {
+            let mut uploader = if let Some(key) = selected_ssh_key {
                 log::info!("🔑 Utilisation de la clé SSH: {}", key.description());
-                // TODO: Passer la clé à l'uploader une fois que le SshConnectionPool supporte les clés spécifiques
-            }
+                Uploader::new_with_key(key)
+            } else {
+                Uploader::new()
+            };
 
             if sub_matches.get_flag("dry-run") {
                 // Mode dry-run - simulation
