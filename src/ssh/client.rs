@@ -221,7 +221,7 @@ impl SshClient {
                     "✅ Authentification réussie avec la clé {} (sans passphrase)",
                     key.description()
                 );
-                return Ok(());
+                Ok(())
             }
             Err(e) => {
                 log::debug!(
@@ -246,7 +246,7 @@ impl SshClient {
                                     "✅ Authentification réussie avec la clé {} (avec passphrase)",
                                     key.description()
                                 );
-                                return Ok(());
+                                Ok(())
                             }
                             Err(e2) => {
                                 log::debug!(
@@ -254,10 +254,10 @@ impl SshClient {
                                     key.description(),
                                     e2
                                 );
-                                return Err(anyhow::anyhow!(
+                                Err(anyhow::anyhow!(
                                     "Authentification échouée avec {}: passphrase incorrecte ou erreur SSH",
                                     key.description()
-                                ));
+                                ))
                             }
                         }
                     } else {
@@ -265,17 +265,17 @@ impl SshClient {
                             "❌ Passphrase annulée par l'utilisateur pour {}",
                             key.description()
                         );
-                        return Err(anyhow::anyhow!(
+                        Err(anyhow::anyhow!(
                             "Authentification annulée pour {}",
                             key.description()
-                        ));
+                        ))
                     }
                 } else {
-                    return Err(anyhow::anyhow!(
+                    Err(anyhow::anyhow!(
                         "Authentification échouée avec {}: {}",
                         key.description(),
                         e
-                    ));
+                    ))
                 }
             }
         }
@@ -334,7 +334,7 @@ impl SshClient {
     /// Prompt de passphrase avec dialoguer (pour CLI)
     fn prompt_passphrase_with_dialoguer(&self, key: &SshKey) -> Result<Option<String>> {
         match Password::with_theme(&ColorfulTheme::default())
-            .with_prompt(&format!(
+            .with_prompt(format!(
                 "Entrez la passphrase pour la clé SSH '{}' (Entrée vide pour annuler)",
                 key.name
             ))
