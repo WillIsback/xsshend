@@ -7,7 +7,7 @@ use ssh2::{Session, Sftp};
 use std::io::{Read, Write};
 use std::path::Path;
 
-use super::keys::{SshKey, SshKeyManager};
+use super::keys::{SshKey, SshKeyManager, SshKeyWithPassphrase};
 
 /// Guard pour gérer temporairement la sortie du mode raw
 pub struct TerminalModeGuard {
@@ -46,6 +46,7 @@ pub struct SshClient {
     host: String,
     username: String,
     selected_key: Option<SshKey>,
+    validated_key: Option<SshKeyWithPassphrase>,
 }
 
 impl SshClient {
@@ -57,6 +58,7 @@ impl SshClient {
             host: host.to_string(),
             username: username.to_string(),
             selected_key: None,
+            validated_key: None,
         })
     }
 
@@ -69,6 +71,23 @@ impl SshClient {
             host: host.to_string(),
             username: username.to_string(),
             selected_key: Some(key),
+            validated_key: None,
+        })
+    }
+
+    /// Crée un nouveau client SSH avec une clé validée (avec passphrase)
+    pub fn new_with_validated_key(
+        host: &str,
+        username: &str,
+        validated_key: SshKeyWithPassphrase,
+    ) -> Result<Self> {
+        Ok(SshClient {
+            session: None,
+            sftp: None,
+            host: host.to_string(),
+            username: username.to_string(),
+            selected_key: None,
+            validated_key: Some(validated_key),
         })
     }
 
@@ -143,6 +162,15 @@ impl SshClient {
 
     /// Authentification par clé SSH
     fn authenticate_with_key(&self, session: &mut Session) -> Result<()> {
+        // Si une clé validée est disponible, l'utiliser en priorité
+        if let Some(ref validated_key) = self.validated_key {
+            log::info!(
+                "🔑 Utilisation de la clé validée: {}",
+                validated_key.key.description()
+            );
+            return self.authenticate_with_validated_key(session, validated_key);
+        }
+
         // Si une clé spécifique est sélectionnée, l'utiliser en priorité
         if let Some(ref selected_key) = self.selected_key {
             log::info!(
@@ -200,7 +228,53 @@ impl SshClient {
         }
     }
 
-    /// Authentification avec une clé spécifique
+    /// Authentification avec une clé validée (passphrase déjà vérifiée)
+    fn authenticate_with_validated_key(
+        &self,
+        session: &mut Session,
+        validated_key: &SshKeyWithPassphrase,
+    ) -> Result<()> {
+        log::debug!(
+            "🔑 Authentification avec clé validée: {}",
+            validated_key.key.description()
+        );
+
+        let public_key_path = validated_key
+            .key
+            .public_key_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string());
+
+        // Utiliser directement la passphrase validée
+        match session.userauth_pubkey_file(
+            &self.username,
+            public_key_path.as_ref().map(Path::new),
+            &validated_key.key.private_key_path,
+            validated_key.passphrase.as_deref(),
+        ) {
+            Ok(()) => {
+                log::info!(
+                    "✅ Authentification réussie avec la clé validée: {}",
+                    validated_key.key.description()
+                );
+                Ok(())
+            }
+            Err(e) => {
+                log::error!(
+                    "❌ Échec inattendu avec clé validée {} : {}",
+                    validated_key.key.description(),
+                    e
+                );
+                Err(anyhow::anyhow!(
+                    "Authentification échouée avec clé validée {}: {}",
+                    validated_key.key.description(),
+                    e
+                ))
+            }
+        }
+    }
+
+    /// Authentification avec une clé spécifique (avec gestion de passphrase interactive)
     fn authenticate_with_specific_key(&self, session: &mut Session, key: &SshKey) -> Result<()> {
         log::debug!("🔑 Essai d'authentification avec {}", key.description());
 

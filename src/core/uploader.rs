@@ -2,7 +2,7 @@
 use crate::config::HostEntry;
 use crate::core::parallel::SshConnectionPool;
 use crate::core::validator::Validator;
-use crate::ssh::keys::SshKey;
+use crate::ssh::keys::SshKeyWithPassphrase;
 use crate::utils::logger::XsshendLogger;
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -18,10 +18,10 @@ impl Uploader {
         }
     }
 
-    /// Crée un nouvel uploader avec une clé SSH spécifique
-    pub fn new_with_key(ssh_key: SshKey) -> Self {
+    /// Crée un nouvel uploader avec une clé SSH validée (avec passphrase)
+    pub fn new_with_validated_key(validated_key: SshKeyWithPassphrase) -> Self {
         Uploader {
-            ssh_pool: SshConnectionPool::new_with_key(ssh_key),
+            ssh_pool: SshConnectionPool::new_with_validated_key(validated_key),
         }
     }
 

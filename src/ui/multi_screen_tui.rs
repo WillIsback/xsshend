@@ -188,10 +188,13 @@ impl MultiScreenTuiApp {
                     let files = state.selected_files.clone();
                     let hosts = state.selected_hosts.clone();
                     let destination = state.destination.clone();
+                    let validated_key = state.validated_ssh_key.clone();
 
                     upload_handle = Some(thread::spawn(move || {
                         let state_ref = Arc::clone(&state_clone);
-                        if let Err(e) = Self::run_uploads(state_clone, files, hosts, destination) {
+                        if let Err(e) =
+                            Self::run_uploads(state_clone, files, hosts, destination, validated_key)
+                        {
                             let mut state = state_ref.lock().unwrap();
                             state.add_log(&format!("❌ Erreur lors des transferts: {}", e));
                         }
@@ -222,6 +225,7 @@ impl MultiScreenTuiApp {
         files: Vec<std::path::PathBuf>,
         hosts: Vec<(String, HostEntry)>,
         destination: String,
+        validated_key: Option<crate::ssh::keys::SshKeyWithPassphrase>,
     ) -> Result<()> {
         use crate::core::parallel::{ProgressCallback, TransferStatus};
         use crate::core::uploader::Uploader;
@@ -232,8 +236,19 @@ impl MultiScreenTuiApp {
             state_lock.add_log("🚀 Démarrage des transferts avec pool SSH...");
         }
 
-        // Créer l'uploader avec pool SSH intégré
-        let mut uploader = Uploader::new();
+        // Créer l'uploader avec la clé validée si disponible
+        let mut uploader = if let Some(validated_key) = validated_key {
+            {
+                let mut state_lock = state.lock().unwrap();
+                state_lock.add_log(&format!(
+                    "🔑 Utilisation de la clé validée: {}",
+                    validated_key.key.description()
+                ));
+            }
+            Uploader::new_with_validated_key(validated_key)
+        } else {
+            Uploader::new()
+        };
 
         // IMPORTANT: Initialiser le pool SSH UNE SEULE FOIS pour tous les fichiers
         let host_tuples: Vec<(String, &HostEntry)> = hosts

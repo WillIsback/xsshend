@@ -251,10 +251,10 @@ fn main() -> Result<()> {
                 return Ok(());
             }
 
-            // Gestion de la sélection de clé SSH
-            let selected_ssh_key = if sub_matches.get_flag("ssh-key-interactive") {
-                // Sélection interactive de la clé SSH
-                println!("🔑 Sélection de la clé SSH...");
+            // Gestion de la sélection et validation de clé SSH
+            let validated_ssh_key = if sub_matches.get_flag("ssh-key-interactive") {
+                // Sélection interactive de la clé SSH avec validation de passphrase
+                println!("🔑 Sélection interactive de la clé SSH...");
                 use crate::ssh::keys::SshKeyManager;
 
                 let key_manager = match SshKeyManager::new() {
@@ -268,21 +268,20 @@ fn main() -> Result<()> {
                     }
                 };
 
-                match key_manager.select_key_interactive() {
-                    Ok(Some(key)) => Some(key.clone()),
-                    Ok(None) => {
-                        log::warn!("⚠️ Aucune clé SSH sélectionnée");
-                        None
-                    }
+                match key_manager.select_key_interactive_with_passphrase() {
+                    Ok(validated_key) => validated_key,
                     Err(e) => {
-                        log::error!("❌ Erreur lors de la sélection de clé SSH: {}", e);
+                        log::error!(
+                            "❌ Erreur lors de la sélection/validation de clé SSH: {}",
+                            e
+                        );
                         std::process::exit(1);
                     }
                 }
             } else if let Some(key_name) = sub_matches.get_one::<String>("ssh-key") {
-                // Clé spécifiée par nom
-                println!("🔑 Recherche de la clé SSH: {}", key_name);
-                use crate::ssh::keys::SshKeyManager;
+                // Clé spécifiée par nom avec validation de passphrase
+                println!("🔑 Recherche et validation de la clé SSH: {}", key_name);
+                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
 
                 let key_manager = match SshKeyManager::new() {
                     Ok(manager) => manager,
@@ -298,7 +297,21 @@ fn main() -> Result<()> {
                 match key_manager.get_key_by_name(key_name) {
                     Some(key) => {
                         println!("✅ Clé SSH trouvée: {}", key.description());
-                        Some(key.clone())
+
+                        // Valider la passphrase
+                        match key_manager.prompt_and_validate_passphrase(key) {
+                            Ok(passphrase) => Some(SshKeyWithPassphrase {
+                                key: key.clone(),
+                                passphrase,
+                            }),
+                            Err(e) => {
+                                log::error!(
+                                    "❌ Erreur lors de la validation de la passphrase: {}",
+                                    e
+                                );
+                                std::process::exit(1);
+                            }
+                        }
                     }
                     None => {
                         log::error!("❌ Clé SSH '{}' non trouvée", key_name);
@@ -306,9 +319,9 @@ fn main() -> Result<()> {
                     }
                 }
             } else if sub_matches.get_flag("ssh-key-auto") {
-                // Force la sélection automatique de la meilleure clé
+                // Force la sélection automatique de la meilleure clé avec validation
                 println!("🔑 Sélection automatique forcée de la clé SSH...");
-                use crate::ssh::keys::SshKeyManager;
+                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
 
                 let key_manager = match SshKeyManager::new() {
                     Ok(manager) => manager,
@@ -323,14 +336,25 @@ fn main() -> Result<()> {
 
                 if let Some(best_key) = key_manager.select_best_key() {
                     println!("✅ Clé SSH sélectionnée: {}", best_key.description());
-                    Some(best_key.clone())
+
+                    // Valider la passphrase
+                    match key_manager.prompt_and_validate_passphrase(best_key) {
+                        Ok(passphrase) => Some(SshKeyWithPassphrase {
+                            key: best_key.clone(),
+                            passphrase,
+                        }),
+                        Err(e) => {
+                            log::error!("❌ Erreur lors de la validation de la passphrase: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
                 } else {
                     println!("⚠️ Aucune clé SSH trouvée");
                     None
                 }
             } else {
-                // Mode automatique avec proposition de sélection si plusieurs clés
-                use crate::ssh::keys::SshKeyManager;
+                // Mode automatique avec validation si une clé est trouvée
+                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
 
                 match SshKeyManager::new() {
                     Ok(key_manager) => {
@@ -338,19 +362,30 @@ fn main() -> Result<()> {
                         match keys.len().cmp(&1) {
                             std::cmp::Ordering::Greater => {
                                 println!("🔑 Plusieurs clés SSH détectées.");
-
-                                // Proposer la sélection interactive si possible
                                 println!(
                                     "🤔 Sélection automatique de la meilleure clé, ou utilisez --ssh-key-interactive pour choisir manuellement"
                                 );
 
-                                // Utiliser la détection automatique de la meilleure clé
                                 if let Some(best_key) = key_manager.select_best_key() {
                                     println!(
                                         "🔑 Clé sélectionnée automatiquement: {}",
                                         best_key.description()
                                     );
-                                    Some(best_key.clone())
+
+                                    // Valider la passphrase
+                                    match key_manager.prompt_and_validate_passphrase(best_key) {
+                                        Ok(passphrase) => Some(SshKeyWithPassphrase {
+                                            key: best_key.clone(),
+                                            passphrase,
+                                        }),
+                                        Err(e) => {
+                                            log::error!(
+                                                "❌ Erreur lors de la validation de la passphrase: {}",
+                                                e
+                                            );
+                                            std::process::exit(1);
+                                        }
+                                    }
                                 } else {
                                     None
                                 }
@@ -358,7 +393,21 @@ fn main() -> Result<()> {
                             std::cmp::Ordering::Equal => {
                                 let key = &keys[0];
                                 println!("🔑 Clé SSH unique trouvée: {}", key.description());
-                                Some(key.clone())
+
+                                // Valider la passphrase
+                                match key_manager.prompt_and_validate_passphrase(key) {
+                                    Ok(passphrase) => Some(SshKeyWithPassphrase {
+                                        key: key.clone(),
+                                        passphrase,
+                                    }),
+                                    Err(e) => {
+                                        log::error!(
+                                            "❌ Erreur lors de la validation de la passphrase: {}",
+                                            e
+                                        );
+                                        std::process::exit(1);
+                                    }
+                                }
                             }
                             std::cmp::Ordering::Less => {
                                 println!("🔑 Aucune clé SSH trouvée, utilisation de ssh-agent");
@@ -377,10 +426,13 @@ fn main() -> Result<()> {
             let destination = sub_matches.get_one::<String>("dest").unwrap();
             let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
 
-            // Créer l'uploader
-            let mut uploader = if let Some(key) = selected_ssh_key {
-                log::info!("🔑 Utilisation de la clé SSH: {}", key.description());
-                Uploader::new_with_key(key)
+            // Créer l'uploader avec la clé validée
+            let mut uploader = if let Some(validated_key) = validated_ssh_key {
+                log::info!(
+                    "🔑 Utilisation de la clé SSH validée: {}",
+                    validated_key.key.description()
+                );
+                Uploader::new_with_validated_key(validated_key)
             } else {
                 Uploader::new()
             };

@@ -1,6 +1,6 @@
 // Module de pool de connexions SSH pour optimiser les transferts parallèles
 use crate::ssh::client::SshClient;
-use crate::ssh::keys::SshKey;
+use crate::ssh::keys::SshKeyWithPassphrase;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
@@ -38,8 +38,8 @@ pub struct SshConnectionPool {
     active_connections: Arc<Mutex<HashMap<String, SshClient>>>,
     /// Statistiques de connexions
     stats: Arc<Mutex<PoolStats>>,
-    /// Clé SSH optionnelle à utiliser pour toutes les connexions
-    ssh_key: Option<SshKey>,
+    /// Clé SSH validée optionnelle à utiliser pour toutes les connexions
+    validated_key: Option<SshKeyWithPassphrase>,
 }
 
 #[derive(Debug, Default)]
@@ -56,17 +56,17 @@ impl SshConnectionPool {
             connection_info: HashMap::new(),
             active_connections: Arc::new(Mutex::new(HashMap::new())),
             stats: Arc::new(Mutex::new(PoolStats::default())),
-            ssh_key: None,
+            validated_key: None,
         }
     }
 
-    /// Créer un nouveau pool de connexions avec une clé SSH spécifique
-    pub fn new_with_key(ssh_key: SshKey) -> Self {
+    /// Créer un nouveau pool de connexions avec une clé SSH validée
+    pub fn new_with_validated_key(validated_key: SshKeyWithPassphrase) -> Self {
         SshConnectionPool {
             connection_info: HashMap::new(),
             active_connections: Arc::new(Mutex::new(HashMap::new())),
             stats: Arc::new(Mutex::new(PoolStats::default())),
-            ssh_key: Some(ssh_key),
+            validated_key: Some(validated_key),
         }
     }
 
@@ -103,16 +103,16 @@ impl SshConnectionPool {
             stats.connections_created += 1;
         }
 
-        let mut client = if let Some(ref ssh_key) = self.ssh_key {
-            // Utiliser la clé SSH spécifiée
+        let mut client = if let Some(ref validated_key) = self.validated_key {
+            // Utiliser la clé SSH validée
             log::info!(
-                "🔑 Utilisation de la clé spécifiée: {} pour {}@{} (alias: {})",
-                ssh_key.description(),
+                "🔑 Utilisation de la clé validée: {} pour {}@{} (alias: {})",
+                validated_key.key.description(),
                 info.username,
                 info.host,
                 server_alias
             );
-            SshClient::new_with_key(&info.host, &info.username, ssh_key.clone())
+            SshClient::new_with_validated_key(&info.host, &info.username, validated_key.clone())
         } else {
             // Utiliser le comportement par défaut
             log::debug!(

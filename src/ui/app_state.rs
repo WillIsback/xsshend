@@ -59,6 +59,7 @@ pub struct AppState {
     pub ssh_key_manager: Option<crate::ssh::keys::SshKeyManager>,
     pub available_ssh_keys: Vec<crate::ssh::keys::SshKey>,
     pub selected_ssh_key: Option<crate::ssh::keys::SshKey>,
+    pub validated_ssh_key: Option<crate::ssh::keys::SshKeyWithPassphrase>,
     pub ssh_key_selection_cursor: usize,
 }
 
@@ -90,6 +91,7 @@ impl Default for AppState {
             ssh_key_manager: None,
             available_ssh_keys: Vec::new(),
             selected_ssh_key: None,
+            validated_ssh_key: None,
             ssh_key_selection_cursor: 0,
         }
     }
@@ -511,12 +513,35 @@ impl AppState {
         Ok(())
     }
 
-    /// Sélectionne la clé SSH actuelle
-    pub fn select_current_ssh_key(&mut self) {
+    /// Sélectionne la clé SSH actuelle et valide la passphrase
+    pub fn select_current_ssh_key(&mut self) -> Result<()> {
         if let Some(key) = self.available_ssh_keys.get(self.ssh_key_selection_cursor) {
             self.selected_ssh_key = Some(key.clone());
-            self.add_log(&format!("🔑 Clé SSH sélectionnée: {}", key.description()));
+
+            // Valider la passphrase immédiatement après la sélection
+            if let Some(ref key_manager) = self.ssh_key_manager {
+                match key_manager.prompt_and_validate_passphrase(key) {
+                    Ok(passphrase) => {
+                        self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
+                            key: key.clone(),
+                            passphrase,
+                        });
+                        self.add_log(&format!("🔑 Clé SSH validée: {}", key.description()));
+                    }
+                    Err(e) => {
+                        self.add_log(&format!(
+                            "❌ Erreur lors de la validation de la passphrase: {}",
+                            e
+                        ));
+                        // Réinitialiser la sélection si la validation échoue
+                        self.selected_ssh_key = None;
+                        self.validated_ssh_key = None;
+                        return Err(e);
+                    }
+                }
+            }
         }
+        Ok(())
     }
 
     /// Navigation dans la liste des clés SSH
@@ -533,16 +558,36 @@ impl AppState {
     }
 
     /// Permet de passer l'écran de sélection de clé SSH
-    pub fn skip_ssh_key_selection(&mut self) {
+    pub fn skip_ssh_key_selection(&mut self) -> Result<()> {
         // Si aucune clé n'est sélectionnée, utiliser la première disponible ou aucune
         if self.selected_ssh_key.is_none() && !self.available_ssh_keys.is_empty() {
             if let Some(key_manager) = &self.ssh_key_manager {
                 if let Some(best_key) = key_manager.select_best_key() {
                     self.selected_ssh_key = Some(best_key.clone());
-                    self.add_log(&format!(
-                        "🔑 Clé SSH auto-sélectionnée: {}",
-                        best_key.description()
-                    ));
+
+                    // Valider la passphrase de la meilleure clé
+                    match key_manager.prompt_and_validate_passphrase(best_key) {
+                        Ok(passphrase) => {
+                            self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
+                                key: best_key.clone(),
+                                passphrase,
+                            });
+                            self.add_log(&format!(
+                                "🔑 Clé SSH auto-sélectionnée et validée: {}",
+                                best_key.description()
+                            ));
+                        }
+                        Err(e) => {
+                            self.add_log(&format!(
+                                "❌ Erreur lors de la validation de la clé auto-sélectionnée: {}",
+                                e
+                            ));
+                            // Réinitialiser en cas d'erreur
+                            self.selected_ssh_key = None;
+                            self.validated_ssh_key = None;
+                            return Err(e);
+                        }
+                    }
                 }
             }
         }
@@ -552,6 +597,8 @@ impl AppState {
                 "🔑 Aucune clé SSH spécifique - utilisation du comportement par défaut (ssh-agent)",
             );
         }
+
+        Ok(())
     }
 }
 

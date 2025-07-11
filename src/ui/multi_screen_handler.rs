@@ -293,8 +293,10 @@ impl MultiScreenEventHandler {
                 state.ssh_key_cursor_down();
             }
             KeyCode::Enter | KeyCode::Char(' ') => {
-                // Sélectionner la clé courante
-                state.select_current_ssh_key();
+                // Sélectionner la clé courante et valider la passphrase
+                if let Err(e) = state.select_current_ssh_key() {
+                    state.add_log(&format!("❌ Sélection de clé échouée: {}", e));
+                }
             }
             KeyCode::Tab => {
                 // Passer à l'écran suivant
@@ -302,8 +304,11 @@ impl MultiScreenEventHandler {
             }
             KeyCode::Char('s') => {
                 // Passer la sélection de clé SSH
-                state.skip_ssh_key_selection();
-                state.next_screen()?;
+                if let Err(e) = state.skip_ssh_key_selection() {
+                    state.add_log(&format!("❌ Auto-sélection de clé échouée: {}", e));
+                } else {
+                    state.next_screen()?;
+                }
             }
             KeyCode::Esc => {
                 // Retour à l'écran précédent

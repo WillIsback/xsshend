@@ -3,6 +3,13 @@ use dialoguer::{Select, theme::ColorfulTheme};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Représente une clé SSH avec sa passphrase validée
+#[derive(Debug, Clone)]
+pub struct SshKeyWithPassphrase {
+    pub key: SshKey,
+    pub passphrase: Option<String>,
+}
+
 /// Représente une clé SSH disponible
 #[derive(Debug, Clone, PartialEq)]
 pub struct SshKey {
@@ -308,6 +315,142 @@ impl SshKeyManager {
             best_key.description()
         );
         Some(best_key)
+    }
+
+    /// Sélectionne une clé interactivement avec validation de passphrase
+    pub fn select_key_interactive_with_passphrase(&self) -> Result<Option<SshKeyWithPassphrase>> {
+        if let Some(key) = self.select_key_interactive()? {
+            let passphrase = self.prompt_and_validate_passphrase(key)?;
+            Ok(Some(SshKeyWithPassphrase {
+                key: key.clone(),
+                passphrase,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Demande et valide la passphrase pour une clé donnée
+    pub fn prompt_and_validate_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
+        // D'abord tester si la clé fonctionne sans passphrase
+        if self.validate_key_passphrase(key, None)? {
+            println!("✅ Clé {} validée (sans passphrase)", key.description());
+            return Ok(None);
+        }
+
+        // La clé nécessite une passphrase, la demander
+        println!("🔐 La clé {} requiert une passphrase", key.description());
+
+        loop {
+            let passphrase = self.prompt_for_passphrase(key)?;
+
+            if let Some(ref pass) = passphrase {
+                if self.validate_key_passphrase(key, Some(pass))? {
+                    println!("✅ Passphrase validée pour {}", key.description());
+                    return Ok(passphrase);
+                } else {
+                    println!("❌ Passphrase incorrecte, veuillez réessayer");
+                    continue;
+                }
+            } else {
+                return Ok(None); // Utilisateur a annulé
+            }
+        }
+    }
+
+    /// Valide qu'une clé peut être chargée avec la passphrase donnée
+    fn validate_key_passphrase(&self, key: &SshKey, passphrase: Option<&str>) -> Result<bool> {
+        use std::fs;
+
+        // Lire la clé privée
+        let private_key_content = fs::read_to_string(&key.private_key_path)
+            .map_err(|e| anyhow!("Impossible de lire la clé privée: {}", e))?;
+
+        // Vérifier d'abord si la clé est chiffrée
+        let is_encrypted = private_key_content.contains("Proc-Type: 4,ENCRYPTED")
+            || private_key_content.contains("ENCRYPTED");
+
+        if !is_encrypted {
+            // Clé non chiffrée, passphrase non nécessaire
+            return Ok(passphrase.is_none());
+        }
+
+        // Pour les clés chiffrées, utiliser ssh2 pour valider la passphrase
+        let private_key_content = fs::read_to_string(&key.private_key_path)
+            .map_err(|e| anyhow!("Impossible de lire la clé privée: {}", e))?;
+
+        // Essayer de charger la clé avec ssh2
+        match ssh2::Session::new() {
+            Ok(session) => {
+                // Créer une connexion fictive pour tester la clé
+                match session.userauth_pubkey_memory("test", None, &private_key_content, passphrase)
+                {
+                    Ok(_) => Ok(true), // Clé chargée avec succès
+                    Err(e) => {
+                        let error_msg = e.message().to_lowercase();
+                        log::debug!("Erreur validation clé: {}", error_msg);
+
+                        // Analyser l'erreur pour déterminer si c'est un problème de passphrase
+                        if error_msg.contains("unable to parse")
+                            || error_msg.contains("decrypt")
+                            || error_msg.contains("invalid format")
+                            || error_msg.contains("bad decrypt")
+                        {
+                            Ok(false) // Passphrase incorrecte
+                        } else {
+                            // Autres erreurs peuvent être normales (pas de serveur SSH pour se connecter)
+                            // On considère que la clé est valide si l'erreur n'est pas liée au déchiffrement
+                            Ok(true)
+                        }
+                    }
+                }
+            }
+            Err(e) => Err(anyhow!(
+                "Impossible de créer une session SSH pour validation: {}",
+                e
+            )),
+        }
+    }
+
+    /// Demande la passphrase à l'utilisateur
+    fn prompt_for_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
+        use std::io::{self, Write};
+
+        // Déterminer si nous sommes en mode TUI ou CLI
+        if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
+            // Mode interactif - utiliser rpassword pour masquer la saisie
+            print!(
+                "🔐 Entrez la passphrase pour {} (ou appuyez sur Entrée pour annuler): ",
+                key.description()
+            );
+            io::stdout().flush()?;
+
+            match rpassword::read_password() {
+                Ok(passphrase) => {
+                    if passphrase.is_empty() {
+                        println!("⚠️ Passphrase annulée");
+                        Ok(None)
+                    } else {
+                        Ok(Some(passphrase))
+                    }
+                }
+                Err(e) => Err(anyhow!("Erreur lors de la saisie de passphrase: {}", e)),
+            }
+        } else {
+            // Mode non-interactif - utiliser stdin normal
+            print!("🔐 Entrez la passphrase pour {} : ", key.description());
+            io::stdout().flush()?;
+
+            let mut passphrase = String::new();
+            io::stdin().read_line(&mut passphrase)?;
+            let passphrase = passphrase.trim().to_string();
+
+            if passphrase.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(passphrase))
+            }
+        }
     }
 
     /// Trouve une clé par nom
