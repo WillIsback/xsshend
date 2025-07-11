@@ -106,14 +106,20 @@ impl SshConnectionPool {
         let mut client = if let Some(ref ssh_key) = self.ssh_key {
             // Utiliser la clé SSH spécifiée
             log::info!(
-                "🔑 Utilisation de la clé spécifiée: {} pour {}@{}",
+                "🔑 Utilisation de la clé spécifiée: {} pour {}@{} (alias: {})",
                 ssh_key.description(),
                 info.username,
-                info.host
+                info.host,
+                server_alias
             );
             SshClient::new_with_key(&info.host, &info.username, ssh_key.clone())
         } else {
             // Utiliser le comportement par défaut
+            log::debug!(
+                "🔑 Aucune clé spécifiée, utilisation du comportement par défaut (ssh-agent + découverte automatique) pour {}@{}",
+                info.username,
+                info.host
+            );
             SshClient::new(&info.host, &info.username)
         }
         .with_context(|| format!("Impossible de créer le client SSH pour {}", server_alias))?;

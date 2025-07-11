@@ -2,6 +2,7 @@
 use anyhow::{Context, Result};
 use dirs::home_dir;
 use ssh2::{Session, Sftp};
+use std::io::{Read, Write};
 use std::path::Path;
 
 use super::keys::{SshKey, SshKeyManager};
@@ -248,12 +249,26 @@ impl SshClient {
 
     /// Téléverse un fichier via SFTP
     pub fn upload_file(&mut self, local_path: &Path, remote_path: &str) -> Result<u64> {
-        log::debug!("Début upload: {} -> {}", local_path.display(), remote_path);
+        log::info!(
+            "📤 Début upload: {} -> {}",
+            local_path.display(),
+            remote_path
+        );
 
         let sftp = self
             .sftp
             .as_ref()
             .context("Client SFTP non initialisé. Appelez connect() d'abord.")?;
+
+        // Expande le chemin distant (gestion de ~/ et $HOME)
+        let expanded_remote_path = self.expand_remote_path(remote_path)?;
+        if expanded_remote_path != remote_path {
+            log::info!(
+                "🔍 Chemin expansé: {} -> {}",
+                remote_path,
+                expanded_remote_path
+            );
+        }
 
         // Vérifier que le fichier local existe et est lisible
         if !local_path.exists() {
@@ -280,24 +295,62 @@ impl SshClient {
 
         log::debug!("Fichier local ouvert, vérification du répertoire distant...");
 
-        // Extraire le répertoire de destination et s'assurer qu'il existe
-        if let Some(parent_dir) = Path::new(remote_path).parent() {
+        // Extraire le répertoire de destination et vérifier/adapter les permissions
+        let final_remote_path = if let Some(parent_dir) = Path::new(&expanded_remote_path).parent()
+        {
             if let Some(parent_str) = parent_dir.to_str() {
                 if !parent_str.is_empty() && parent_str != "/" {
-                    self.ensure_remote_directory(parent_str)?;
-                }
-            }
-        }
+                    log::debug!("Vérification des permissions pour: {}", parent_str);
 
-        log::debug!("Création du fichier distant...");
+                    // Essayer de trouver un répertoire accessible
+                    match self.find_accessible_directory(parent_str) {
+                        Ok(accessible_dir) => {
+                            // Construire le nouveau chemin complet
+                            let filename = Path::new(&expanded_remote_path)
+                                .file_name()
+                                .and_then(|f| f.to_str())
+                                .unwrap_or("uploaded_file");
+
+                            let new_path =
+                                format!("{}/{}", accessible_dir.trim_end_matches('/'), filename);
+
+                            if new_path != expanded_remote_path {
+                                log::warn!(
+                                    "⚠️  Changement du chemin de destination: {} -> {} (permissions)",
+                                    expanded_remote_path,
+                                    new_path
+                                );
+                            }
+                            new_path
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "❌ Impossible de trouver un répertoire accessible pour {}: {}",
+                                parent_str,
+                                e
+                            );
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    expanded_remote_path.to_string()
+                }
+            } else {
+                expanded_remote_path.to_string()
+            }
+        } else {
+            expanded_remote_path.to_string()
+        };
+
+        log::debug!("Création du fichier distant: {}", final_remote_path);
 
         // Créer le fichier distant avec gestion d'erreur détaillée
         let mut remote_file = sftp
-            .create(Path::new(remote_path))
+            .create(Path::new(&final_remote_path))
             .with_context(|| {
                 format!(
-                    "Impossible de créer le fichier distant: {} (vérifiez les permissions et le chemin)", 
-                    remote_path
+                    "Impossible de créer le fichier distant: {} (vérifiez les permissions d'écriture et que le répertoire parent existe)", 
+                    final_remote_path
                 )
             })?;
 
@@ -308,11 +361,21 @@ impl SshClient {
             format!(
                 "Erreur lors de la copie des données ({} -> {})",
                 local_path.display(),
-                remote_path
+                final_remote_path
             )
         })?;
 
         log::debug!("Transfert terminé: {} octets copiés", bytes_copied);
+
+        // Informer l'utilisateur du chemin final
+        if final_remote_path != remote_path {
+            log::info!(
+                "✅ Fichier uploadé vers: {} (adapté pour permissions)",
+                final_remote_path
+            );
+        } else {
+            log::info!("✅ Fichier uploadé vers: {}", final_remote_path);
+        }
 
         // Vérifier que tous les octets ont été transférés
         if bytes_copied != file_size {
@@ -326,38 +389,77 @@ impl SshClient {
         Ok(bytes_copied)
     }
 
-    /// Assure que le répertoire de destination existe sur le serveur distant
+    /// Assure que le répertoire de destination existe sur le serveur distant (récursif)
     pub fn ensure_remote_directory(&self, remote_dir: &str) -> Result<()> {
         let sftp = self.sftp.as_ref().context("Client SFTP non initialisé")?;
 
+        // Normaliser le chemin (retirer les "//" et les "/./" etc.)
+        let normalized_path = remote_dir.trim_end_matches('/');
+        if normalized_path.is_empty() || normalized_path == "/" {
+            return Ok(()); // Répertoire racine existe toujours
+        }
+
         // Vérifier si le répertoire existe déjà
-        match sftp.stat(Path::new(remote_dir)) {
-            Ok(_) => {
-                log::debug!("Répertoire distant {} existe déjà", remote_dir);
-                return Ok(());
+        match sftp.stat(Path::new(normalized_path)) {
+            Ok(stat) => {
+                // Vérifier que c'est bien un répertoire
+                if stat.is_dir() {
+                    log::debug!("Répertoire distant {} existe déjà", normalized_path);
+                    return Ok(());
+                } else {
+                    anyhow::bail!(
+                        "Le chemin {} existe mais n'est pas un répertoire",
+                        normalized_path
+                    );
+                }
             }
             Err(_) => {
                 log::debug!(
-                    "Répertoire distant {} n'existe pas, tentative de création",
-                    remote_dir
+                    "Répertoire distant {} n'existe pas, création récursive...",
+                    normalized_path
                 );
             }
         }
 
-        // Créer le répertoire (récursivement si nécessaire)
-        match sftp.mkdir(Path::new(remote_dir), 0o755) {
+        // Créer récursivement les répertoires parents d'abord
+        if let Some(parent) = Path::new(normalized_path).parent() {
+            if let Some(parent_str) = parent.to_str() {
+                if !parent_str.is_empty() && parent_str != "/" {
+                    // Récursion pour créer le parent d'abord
+                    self.ensure_remote_directory(parent_str)?;
+                }
+            }
+        }
+
+        // Créer le répertoire lui-même
+        match sftp.mkdir(Path::new(normalized_path), 0o755) {
             Ok(()) => {
-                log::info!("✅ Répertoire distant créé : {}", remote_dir);
+                log::info!("✅ Répertoire distant créé : {}", normalized_path);
                 Ok(())
             }
             Err(e) => {
-                // Ce n'est pas forcément une erreur critique si le répertoire existe déjà
-                log::warn!(
-                    "⚠️ Impossible de créer le répertoire {} : {}",
-                    remote_dir,
-                    e
-                );
-                Ok(()) // On continue quand même
+                // Vérifier si l'erreur est due au fait que le répertoire existe déjà
+                match sftp.stat(Path::new(normalized_path)) {
+                    Ok(stat) if stat.is_dir() => {
+                        log::debug!(
+                            "Répertoire {} existe déjà (créé concurremment)",
+                            normalized_path
+                        );
+                        Ok(())
+                    }
+                    _ => {
+                        log::error!(
+                            "❌ Impossible de créer le répertoire {} : {}",
+                            normalized_path,
+                            e
+                        );
+                        anyhow::bail!(
+                            "Échec création répertoire {}: {} (vérifiez les permissions)",
+                            normalized_path,
+                            e
+                        )
+                    }
+                }
             }
         }
     }
@@ -397,6 +499,179 @@ impl SshClient {
         }
 
         Ok(())
+    }
+
+    /// Teste les permissions d'écriture dans un répertoire distant
+    pub fn test_write_permissions(&self, remote_dir: &str) -> Result<bool> {
+        let sftp = self.sftp.as_ref().context("Client SFTP non initialisé")?;
+
+        // Créer un fichier de test temporaire
+        let test_file_name = format!(
+            "{}/.xsshend_test_{}",
+            remote_dir.trim_end_matches('/'),
+            std::process::id()
+        );
+        let test_path = Path::new(&test_file_name);
+
+        log::debug!("🔍 Test permissions d'écriture dans: {}", remote_dir);
+
+        // Tenter de créer un fichier de test
+        match sftp.create(test_path) {
+            Ok(mut file) => {
+                // Écrire quelques octets de test
+                match file.write_all(b"test") {
+                    Ok(()) => {
+                        // Nettoyer le fichier de test
+                        let _ = sftp.unlink(test_path);
+                        log::debug!("✅ Permissions d'écriture confirmées pour: {}", remote_dir);
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        log::debug!("❌ Échec écriture test dans {}: {}", remote_dir, e);
+                        let _ = sftp.unlink(test_path);
+                        Ok(false)
+                    }
+                }
+            }
+            Err(e) => {
+                log::debug!(
+                    "❌ Impossible de créer fichier test dans {}: {}",
+                    remote_dir,
+                    e
+                );
+                Ok(false)
+            }
+        }
+    }
+
+    /// Trouve un répertoire accessible pour l'upload avec fallback
+    pub fn find_accessible_directory(&self, preferred_dir: &str) -> Result<String> {
+        log::debug!(
+            "🔍 Recherche d'un répertoire accessible, préférence: {}",
+            preferred_dir
+        );
+
+        // Liste des répertoires à tester par ordre de priorité
+        let test_dirs = vec![
+            preferred_dir.to_string(),
+            format!("{}/xsshend", preferred_dir.trim_end_matches('/')),
+            "/tmp".to_string(),
+            format!("/tmp/{}", self.username),
+            format!("/home/{}", self.username),
+            format!("/Users/{}", self.username), // macOS
+            "/var/tmp".to_string(),
+        ];
+
+        for test_dir in test_dirs {
+            log::debug!("🔍 Test du répertoire: {}", test_dir);
+
+            // Vérifier si le répertoire existe ou peut être créé
+            match self.ensure_remote_directory(&test_dir) {
+                Ok(()) => {
+                    // Tester les permissions d'écriture
+                    match self.test_write_permissions(&test_dir) {
+                        Ok(true) => {
+                            if test_dir != preferred_dir {
+                                log::warn!(
+                                    "⚠️  Utilisation du répertoire alternatif: {} (répertoire original {} inaccessible)",
+                                    test_dir,
+                                    preferred_dir
+                                );
+                            }
+                            return Ok(test_dir);
+                        }
+                        Ok(false) => {
+                            log::debug!("❌ Pas de permissions d'écriture dans: {}", test_dir);
+                        }
+                        Err(e) => {
+                            log::debug!("❌ Erreur test permissions {}: {}", test_dir, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::debug!(
+                        "❌ Impossible de créer/accéder au répertoire {}: {}",
+                        test_dir,
+                        e
+                    );
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "Aucun répertoire accessible trouvé pour l'utilisateur {}@{}. Répertoires testés: {:?}",
+            self.username,
+            self.host,
+            vec![preferred_dir, "/tmp", &format!("/home/{}", self.username)]
+        )
+    }
+
+    /// Expanse les chemins ~ et $HOME côté serveur SSH
+    pub fn expand_remote_path(&self, remote_path: &str) -> Result<String> {
+        log::debug!("🔍 Expansion du chemin distant: {}", remote_path);
+
+        // Si le chemin ne contient pas de variables à expanser, le retourner tel quel
+        if !remote_path.starts_with('~') && !remote_path.contains("$HOME") {
+            return Ok(remote_path.to_string());
+        }
+
+        // Obtenir le répertoire home de l'utilisateur SSH distant
+        let home_dir = self.get_remote_home_directory()?;
+
+        let expanded_path = if remote_path.starts_with("~/") {
+            // Remplacer ~/ par le répertoire home
+            remote_path.replacen("~/", &format!("{}/", home_dir.trim_end_matches('/')), 1)
+        } else if remote_path == "~" {
+            // ~ seul = répertoire home
+            home_dir
+        } else if remote_path.contains("$HOME") {
+            // Remplacer $HOME par le répertoire home
+            remote_path.replace("$HOME", &home_dir)
+        } else {
+            remote_path.to_string()
+        };
+
+        log::debug!("✅ Chemin expansé: {} -> {}", remote_path, expanded_path);
+        Ok(expanded_path)
+    }
+
+    /// Obtient le répertoire home de l'utilisateur distant via SSH
+    pub fn get_remote_home_directory(&self) -> Result<String> {
+        let session = self
+            .session
+            .as_ref()
+            .context("Session SSH non initialisée")?;
+
+        // Exécuter la commande 'echo $HOME' sur le serveur distant
+        let mut channel = session.channel_session()?;
+        channel.exec("echo $HOME")?;
+
+        let mut output = String::new();
+        channel.read_to_string(&mut output)?;
+        channel.wait_close()?;
+
+        let exit_status = channel.exit_status()?;
+        if exit_status != 0 {
+            anyhow::bail!(
+                "Échec de la commande 'echo $HOME' sur le serveur distant (code: {})",
+                exit_status
+            );
+        }
+
+        let home_dir = output.trim().to_string();
+
+        if home_dir.is_empty() {
+            // Fallback: construire le chemin basé sur l'utilisateur
+            let fallback_home = format!("/home/{}", self.username);
+            log::warn!(
+                "⚠️  $HOME vide sur le serveur distant, utilisation du fallback: {}",
+                fallback_home
+            );
+            Ok(fallback_home)
+        } else {
+            log::debug!("✅ Répertoire home distant détecté: {}", home_dir);
+            Ok(home_dir)
+        }
     }
 }
 
