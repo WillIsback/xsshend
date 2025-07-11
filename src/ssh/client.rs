@@ -4,8 +4,41 @@ use dirs::home_dir;
 use ssh2::{Session, Sftp};
 use std::io::{Read, Write};
 use std::path::Path;
+use dialoguer::{Password, theme::ColorfulTheme};
+use crossterm::terminal;
 
 use super::keys::{SshKey, SshKeyManager};
+
+/// Guard pour gérer temporairement la sortie du mode raw
+pub struct TerminalModeGuard {
+    was_raw: bool,
+}
+
+impl TerminalModeGuard {
+    pub fn new() -> Result<Self> {
+        let was_raw = match terminal::is_raw_mode_enabled() {
+            Ok(is_raw) => {
+                if is_raw {
+                    terminal::disable_raw_mode()?;
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false, // Assume non-raw if we can't detect
+        };
+        
+        Ok(TerminalModeGuard { was_raw })
+    }
+}
+
+impl Drop for TerminalModeGuard {
+    fn drop(&mut self) {
+        if self.was_raw {
+            let _ = terminal::enable_raw_mode();
+        }
+    }
+}
 
 pub struct SshClient {
     session: Option<Session>,
@@ -176,32 +209,174 @@ impl SshClient {
             .as_ref()
             .map(|p| p.to_string_lossy().to_string());
 
+        // Essayer d'abord sans passphrase (pour les clés non protégées)
         match session.userauth_pubkey_file(
             &self.username,
             public_key_path.as_ref().map(Path::new),
             &key.private_key_path,
-            None,
+            None, // Pas de passphrase dans le premier essai
         ) {
             Ok(()) => {
                 log::info!(
-                    "✅ Authentification réussie avec la clé {}",
+                    "✅ Authentification réussie avec la clé {} (sans passphrase)",
                     key.description()
                 );
-                Ok(())
+                return Ok(());
             }
             Err(e) => {
                 log::debug!(
-                    "❌ Échec authentification avec {} : {}",
+                    "🔓 Première tentative sans passphrase échouée pour {} : {}",
                     key.description(),
                     e
                 );
-                Err(anyhow::anyhow!(
-                    "Authentification échouée avec {}: {}",
-                    key.description(),
-                    e
-                ))
+                
+                // Si l'erreur semble indiquer qu'une passphrase est requise, demander la passphrase
+                if self.might_need_passphrase(&e) {
+                    log::debug!("🔐 Tentative avec passphrase pour {}", key.description());
+                    
+                    if let Some(passphrase) = self.prompt_for_passphrase(key)? {
+                        match session.userauth_pubkey_file(
+                            &self.username,
+                            public_key_path.as_ref().map(Path::new),
+                            &key.private_key_path,
+                            Some(&passphrase),
+                        ) {
+                            Ok(()) => {
+                                log::info!(
+                                    "✅ Authentification réussie avec la clé {} (avec passphrase)",
+                                    key.description()
+                                );
+                                return Ok(());
+                            }
+                            Err(e2) => {
+                                log::debug!(
+                                    "❌ Échec authentification avec passphrase pour {} : {}",
+                                    key.description(),
+                                    e2
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Authentification échouée avec {}: passphrase incorrecte ou erreur SSH",
+                                    key.description()
+                                ));
+                            }
+                        }
+                    } else {
+                        log::debug!("❌ Passphrase annulée par l'utilisateur pour {}", key.description());
+                        return Err(anyhow::anyhow!(
+                            "Authentification annulée pour {}",
+                            key.description()
+                        ));
+                    }
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Authentification échouée avec {}: {}",
+                        key.description(),
+                        e
+                    ));
+                }
             }
         }
+    }
+
+    /// Détermine si l'erreur pourrait indiquer qu'une passphrase est requise
+    fn might_need_passphrase(&self, error: &ssh2::Error) -> bool {
+        let error_msg = error.to_string().to_lowercase();
+        // Patterns d'erreurs qui suggèrent qu'une passphrase est requise
+        error_msg.contains("could not read key from file")
+            || error_msg.contains("bad decrypt")
+            || error_msg.contains("authentication failed")
+            || error_msg.contains("private key")
+            || error_msg.contains("passphrase")
+            || error_msg.contains("encrypted")
+    }
+
+    /// Demande la passphrase à l'utilisateur de manière interactive
+    fn prompt_for_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
+        log::info!("🔐 La clé {} semble protégée par passphrase", key.description());
+        
+        // Détecter si on est dans un environnement TUI (terminal en mode raw)
+        let is_in_tui = self.is_terminal_in_raw_mode();
+        
+        if is_in_tui {
+            // Utiliser rpassword pour les environnements TUI
+            self.prompt_passphrase_with_rpassword(key)
+        } else {
+            // Utiliser dialoguer pour les environnements CLI normaux
+            self.prompt_passphrase_with_dialoguer(key)
+        }
+    }
+
+    /// Détermine si le terminal est en mode raw (utilisé par TUI)
+    fn is_terminal_in_raw_mode(&self) -> bool {
+        // Essayer de détecter si crossterm est en mode raw
+        // Ceci est une heuristique car il n'y a pas de moyen direct de le savoir
+        
+        match terminal::is_raw_mode_enabled() {
+            Ok(is_raw) => {
+                log::debug!("🔍 Mode raw détecté: {}", is_raw);
+                is_raw
+            }
+            Err(_) => {
+                // Fallback : vérifier si on peut écrire normalement sur le terminal
+                log::debug!("🔍 Impossible de détecter le mode raw, utilisation d'une heuristique");
+                // Si on est dans un TUI, souvent les variables d'environnement spécifiques sont définies
+                std::env::var("TERM_PROGRAM").is_ok() && atty::is(atty::Stream::Stdin)
+            }
+        }
+    }
+
+    /// Prompt de passphrase avec dialoguer (pour CLI)
+    fn prompt_passphrase_with_dialoguer(&self, key: &SshKey) -> Result<Option<String>> {
+        match Password::with_theme(&ColorfulTheme::default())
+            .with_prompt(&format!("Entrez la passphrase pour la clé SSH '{}' (Entrée vide pour annuler)", key.name))
+            .allow_empty_password(true)
+            .interact()
+        {
+            Ok(passphrase) => {
+                if passphrase.is_empty() {
+                    log::debug!("❌ Passphrase vide, annulation pour {}", key.description());
+                    Ok(None)
+                } else {
+                    log::debug!("🔐 Passphrase saisie pour {}", key.description());
+                    Ok(Some(passphrase))
+                }
+            }
+            Err(e) => {
+                log::error!("❌ Erreur lors de la saisie de passphrase : {}", e);
+                Err(anyhow::anyhow!("Erreur lors de la saisie de passphrase : {}", e))
+            }
+        }
+    }
+
+    /// Prompt de passphrase avec rpassword (pour TUI)
+    fn prompt_passphrase_with_rpassword(&self, key: &SshKey) -> Result<Option<String>> {
+        
+        // Sortir temporairement du mode raw pour permettre l'input
+        let _guard = self.temporarily_exit_raw_mode()?;
+        
+        print!("🔐 Entrez la passphrase pour la clé SSH '{}' (ou appuyez sur Entrée pour annuler): ", key.name);
+        std::io::stdout().flush()?;
+        
+        match rpassword::read_password() {
+            Ok(passphrase) => {
+                if passphrase.is_empty() {
+                    log::debug!("❌ Passphrase vide, annulation pour {}", key.description());
+                    Ok(None)
+                } else {
+                    log::debug!("🔐 Passphrase saisie pour {}", key.description());
+                    Ok(Some(passphrase))
+                }
+            }
+            Err(e) => {
+                log::error!("❌ Erreur lors de la saisie de passphrase : {}", e);
+                Err(anyhow::anyhow!("Erreur lors de la saisie de passphrase : {}", e))
+            }
+        }
+    }
+
+    /// Sortir temporairement du mode raw et y retourner automatiquement
+    fn temporarily_exit_raw_mode(&self) -> Result<TerminalModeGuard> {
+        TerminalModeGuard::new()
     }
 
     /// Méthode de fallback pour l'authentification avec les clés par défaut
@@ -210,39 +385,73 @@ impl SshClient {
 
         // Chemins des clés SSH par défaut (ordre de priorité)
         let private_key_paths = [
-            home.join(".ssh/id_ed25519"),
-            home.join(".ssh/id_rsa"),
-            home.join(".ssh/id_ecdsa"),
+            ("id_ed25519", home.join(".ssh/id_ed25519")),
+            ("id_rsa", home.join(".ssh/id_rsa")),
+            ("id_ecdsa", home.join(".ssh/id_ecdsa")),
         ];
 
         // Chercher une clé valide
-        for key_path in &private_key_paths {
+        for (key_name, key_path) in &private_key_paths {
             if key_path.exists() {
                 let public_key_path = format!("{}.pub", key_path.display());
 
-                // Essayer l'authentification
+                // Essayer d'abord sans passphrase
                 match session.userauth_pubkey_file(
                     &self.username,
                     Some(Path::new(&public_key_path)),
                     key_path,
-                    None, // Pas de passphrase pour l'instant
+                    None, // Pas de passphrase dans le premier essai
                 ) {
                     Ok(()) => {
                         log::info!(
-                            "Authentification par clé publique réussie : {}",
+                            "✅ Authentification par clé publique réussie : {} (sans passphrase)",
                             key_path.display()
                         );
                         return Ok(());
                     }
                     Err(e) => {
-                        log::debug!("Échec authentification avec {} : {}", key_path.display(), e);
+                        log::debug!("🔓 Première tentative sans passphrase échouée pour {} : {}", key_path.display(), e);
+                        
+                        // Si l'erreur semble indiquer qu'une passphrase est requise, demander la passphrase
+                        if self.might_need_passphrase(&e) {
+                            log::debug!("🔐 Tentative avec passphrase pour {}", key_path.display());
+                            
+                            // Créer un SshKey temporaire pour le prompt
+                            if let Ok(temp_key) = crate::ssh::keys::SshKey::new(key_name.to_string(), key_path.clone()) {
+                                if let Ok(Some(passphrase)) = self.prompt_for_passphrase(&temp_key) {
+                                    match session.userauth_pubkey_file(
+                                        &self.username,
+                                        Some(Path::new(&public_key_path)),
+                                        key_path,
+                                        Some(&passphrase),
+                                    ) {
+                                        Ok(()) => {
+                                            log::info!(
+                                                "✅ Authentification par clé publique réussie : {} (avec passphrase)",
+                                                key_path.display()
+                                            );
+                                            return Ok(());
+                                        }
+                                        Err(e2) => {
+                                            log::debug!(
+                                                "❌ Échec authentification avec passphrase pour {} : {}",
+                                                key_path.display(),
+                                                e2
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    log::debug!("❌ Passphrase annulée pour {}", key_path.display());
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
         anyhow::bail!(
-            "Échec de l'authentification SSH pour l'utilisateur '{}'. Essayé: agent SSH et clés privées.",
+            "Échec de l'authentification SSH pour l'utilisateur '{}'. Essayé: agent SSH et clés privées (avec gestion des passphrases).",
             self.username
         )
     }

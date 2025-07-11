@@ -1,0 +1,52 @@
+# Configuration Jekyll pour GitHub Pages
+theme: minima
+title: "xsshend Documentation"
+description: "Documentation complète pour xsshend - Téléversement SSH parallèle"
+
+# Configuration du site
+url: "https://willisback.github.io"
+baseurl: "/xsshend"
+
+# Configuration Markdown
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Plugins
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap
+
+# Exclusions
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - node_modules
+  - vendor
+
+# Navigation
+navigation:
+  - title: "Accueil"
+    url: "/"
+  - title: "Guide d'utilisation"
+    url: "/usage.html"
+  - title: "Configuration"
+    url: "/configuration.html" 
+  - title: "Gestion SSH"
+    url: "/ssh-keys.html"
+  - title: "CI/CD"
+    url: "/cicd.html"
+  - title: "GitHub"
+    url: "https://github.com/WillIsback/xsshend"
+    external: true
+
+# Métadonnées du projet
+project:
+  name: "xsshend"
+  description: "Téléversement SSH parallèle avec interface TUI moderne"
+  repository: "https://github.com/WillIsback/xsshend"
+  crates_io: "https://crates.io/crates/xsshend"
+  docs_rs: "https://docs.rs/xsshend"

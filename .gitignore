@@ -1,6 +1,9 @@
 /target
 .github/copilot-instructions.md
 
+# Documentation interne confidentielle
+INTERNAL_CI_GUIDE.md
+
 # Fichiers temporaires
 *.tmp
 *.temp

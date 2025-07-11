@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if page.title %}{{ page.title }} - {% endif %}{{ site.title }}</title>
+    <meta name="description" content="{% if page.description %}{{ page.description }}{% else %}{{ site.description }}{% endif %}">
+    
+    <!-- GitHub Pages CSS -->
+    <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
+    
+    <!-- Custom CSS for xsshend -->
+    <style>
+        .highlight { background: #f6f8fa; }
+        .highlight pre { padding: 16px; overflow: auto; }
+        .highlight code { background: transparent; }
+        
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #0366d6;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 4px;
+            transition: background 0.2s;
+        }
+        
+        .btn:hover {
+            background: #0256cc;
+            color: white;
+            text-decoration: none;
+        }
+        
+        .btn-secondary {
+            background: #6f42c1;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a32a3;
+        }
+        
+        .navigation {
+            background: #f6f8fa;
+            padding: 10px 0;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e1e4e8;
+        }
+        
+        .navigation ul {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+        }
+        
+        .navigation a {
+            color: #586069;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .navigation a:hover {
+            color: #0366d6;
+        }
+        
+        .project-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 8px;
+        }
+        
+        .project-header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+        
+        .project-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+        
+        .badges {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        
+        .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            text-decoration: none;
+            color: white;
+        }
+        
+        .badge:hover {
+            background: rgba(255,255,255,0.3);
+            color: white;
+        }
+        
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 20px;
+            border-top: 1px solid #e1e4e8;
+            color: #586069;
+        }
+        
+        code {
+            background: #f6f8fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+        
+        pre code {
+            background: transparent;
+            padding: 0;
+        }
+        
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+        }
+        
+        th, td {
+            border: 1px solid #e1e4e8;
+            padding: 8px 12px;
+            text-align: left;
+        }
+        
+        th {
+            background: #f6f8fa;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-lg px-3 my-5 markdown-body">
+        {% if page.layout != 'home' %}
+        <nav class="navigation">
+            <ul>
+                <li><a href="{{ site.baseurl }}/">🏠 Accueil</a></li>
+                <li><a href="{{ site.baseurl }}/usage.html">📖 Utilisation</a></li>
+                <li><a href="{{ site.baseurl }}/configuration.html">⚙️ Configuration</a></li>
+                <li><a href="{{ site.baseurl }}/ssh-keys.html">🔑 SSH</a></li>
+                <li><a href="{{ site.baseurl }}/cicd.html">🚀 CI/CD</a></li>
+                <li><a href="{{ site.project.repository }}" target="_blank">💻 GitHub</a></li>
+            </ul>
+        </nav>
+        {% endif %}
+        
+        {% if page.layout == 'home' %}
+        <div class="project-header">
+            <h1>🚀 {{ site.project.name }}</h1>
+            <p>{{ site.project.description }}</p>
+            <div class="badges">
+                <a href="{{ site.project.crates_io }}" class="badge">📦 Crates.io</a>
+                <a href="{{ site.project.docs_rs }}" class="badge">📚 Docs.rs</a>
+                <a href="{{ site.project.repository }}" class="badge">💻 GitHub</a>
+                <a href="{{ site.project.repository }}/releases" class="badge">🏷️ Releases</a>
+            </div>
+        </div>
+        {% endif %}
+        
+        <main>
+            {{ content }}
+        </main>
+        
+        <div class="footer">
+            <p>Documentation générée avec ❤️ pour <a href="{{ site.project.repository }}">{{ site.project.name }}</a></p>
+            <p>© 2024-2025 - <a href="{{ site.project.repository }}/blob/main/LICENSE">Licence MIT</a></p>
+        </div>
+    </div>
+</body>
+</html>
