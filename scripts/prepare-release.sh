@@ -137,7 +137,7 @@ fi
 log_info "Vérification des versions actuelles..."
 
 CARGO_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
-MAIN_VERSION=$(grep 'version = ' src/main.rs | sed 's/.*version = "\(.*\)".*/\1/')
+MAIN_VERSION=$(grep '\.version(' src/main.rs | sed 's/.*\.version("\(.*\)").*/\1/')
 
 log_info "Version actuelle dans Cargo.toml: $CARGO_VERSION"
 log_info "Version actuelle dans main.rs: $MAIN_VERSION"
@@ -178,7 +178,7 @@ if [[ "$DRY_RUN" == "false" ]]; then
     sed -i "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
     
     # Mettre à jour main.rs
-    sed -i "s/version = \".*\"/version = \"$VERSION\"/" src/main.rs
+    sed -i "s/\.version(\".*\")/\.version(\"$VERSION\")/" src/main.rs
     
     log_success "Versions mises à jour"
 else
