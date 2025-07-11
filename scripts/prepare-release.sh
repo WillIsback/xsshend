@@ -62,6 +62,12 @@ if [[ $# -eq 0 ]]; then
     exit 1
 fi
 
+# Check for help first
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    show_help
+    exit 0
+fi
+
 VERSION="$1"
 shift
 
