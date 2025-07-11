@@ -283,9 +283,7 @@ jobs:
     continue-on-error: true  # Ne pas faire échouer le workflow si Pages échoue
     
     permissions:
-      contents: read
-      pages: write
-      id-token: write
+      contents: write
     
     steps:
     - name: Checkout main branch for docs
@@ -293,24 +291,13 @@ jobs:
       with:
         ref: main  # Checkout main au lieu du tag pour éviter les restrictions
     
-    - name: Setup Pages
-      uses: actions/configure-pages@v3
-      continue-on-error: true
-    
-    - name: Build documentation with Jekyll
-      uses: actions/jekyll-build-pages@v1
+    - name: Deploy to GitHub Pages (via gh-pages branch)
+      uses: peaceiris/actions-gh-pages@v3
       with:
-        source: ./docs
-        destination: ./_site
-      continue-on-error: true
-    
-    - name: Upload artifact to Pages
-      uses: actions/upload-pages-artifact@v2
-      continue-on-error: true
-    
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v2
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
+        enable_jekyll: true
+        cname: # Optionnel: votre domaine custom
       continue-on-error: true
 
   # Création de la release GitHub

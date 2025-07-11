@@ -9,7 +9,7 @@ on:
   workflow_dispatch:  # Permet de déclencher manuellement
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -23,26 +23,14 @@ jobs:
     name: Deploy Documentation to GitHub Pages
     runs-on: ubuntu-latest
     
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Setup Pages
-      uses: actions/configure-pages@v3
-    
-    - name: Build documentation with Jekyll
-      uses: actions/jekyll-build-pages@v1
+    - name: Deploy to GitHub Pages (via gh-pages branch)
+      uses: peaceiris/actions-gh-pages@v3
       with:
-        source: ./docs
-        destination: ./_site
-    
-    - name: Upload artifact to Pages
-      uses: actions/upload-pages-artifact@v2
-    
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v2
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./docs
+        enable_jekyll: true
+        cname: # Optionnel: votre domaine custom
