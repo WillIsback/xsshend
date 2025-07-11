@@ -191,30 +191,12 @@ jobs:
         ./target/release/xsshend --version
         ./target/release/xsshend --help
 
-  # Build multi-platform
+  # Build release
   build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+    name: Build Release
+    runs-on: ubuntu-latest
     needs: [pre-release-checks, test]
     if: needs.pre-release-checks.outputs.is-consistent == 'true'
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            suffix: ""
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            suffix: ""
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            suffix: ".exe"
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            suffix: ""
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            suffix: ""
 
     steps:
     - name: Checkout repository
@@ -222,14 +204,6 @@ jobs:
 
     - name: Install Rust
       uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
-
-    - name: Install musl tools (Linux musl only)
-      if: matrix.target == 'x86_64-unknown-linux-musl'
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y musl-tools
 
     - name: Set up Rust cache
       uses: actions/cache@v3
@@ -240,29 +214,26 @@ jobs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build release binary
-      run: cargo build --release --target ${{ matrix.target }} --verbose
+      run: cargo build --release --verbose
 
-    - name: Create archive
-      shell: bash
+    - name: Test release binary
       run: |
-        ARCHIVE_NAME="xsshend-${{ needs.pre-release-checks.outputs.version }}-${{ matrix.target }}"
-        BINARY_PATH="target/${{ matrix.target }}/release/xsshend${{ matrix.suffix }}"
-        
-        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          7z a "${ARCHIVE_NAME}.zip" "${BINARY_PATH}"
-          echo "ARCHIVE=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
-        else
-          tar czf "${ARCHIVE_NAME}.tar.gz" -C "target/${{ matrix.target }}/release" "xsshend${{ matrix.suffix }}"
-          echo "ARCHIVE=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
-        fi
+        ./target/release/xsshend --version
+        ./target/release/xsshend --help
+
+    - name: Create binary archive
+      run: |
+        ARCHIVE_NAME="xsshend-${{ needs.pre-release-checks.outputs.version }}-linux-x64"
+        tar czf "${ARCHIVE_NAME}.tar.gz" -C target/release xsshend
+        echo "ARCHIVE=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.target }}
+        name: release-binary
         path: ${{ env.ARCHIVE }}
 
   # Publication sur crates.io
@@ -355,6 +326,10 @@ jobs:
         find artifacts/ -name "*.tar.gz" -o -name "*.zip" | while read file; do
           cp "$file" release-assets/
         done
+        # Si aucun fichier trouvé, créer un placeholder
+        if [ ! "$(ls -A release-assets/)" ]; then
+          echo "Aucun asset trouvé dans artifacts/" > release-assets/README.txt
+        fi
         ls -la release-assets/
 
     - name: Generate release notes
@@ -382,21 +357,15 @@ jobs:
 
             ### 📦 Téléchargements
 
-            Choisissez le binaire correspondant à votre système :
-
-            - **Linux x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz\`
-            - **Linux x86_64 (musl)**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-unknown-linux-musl.tar.gz\`
-            - **Windows x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-pc-windows-msvc.zip\`
-            - **macOS x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-apple-darwin.tar.gz\`
-            - **macOS ARM64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-aarch64-apple-darwin.tar.gz\`
+            Le binaire Linux x64 est disponible en téléchargement ci-dessous.
 
             ### 📋 Installation
 
             \`\`\`bash
-            # Avec cargo
+            # Avec cargo (recommandé)
             cargo install xsshend
 
-            # Ou téléchargez le binaire et ajoutez-le à votre PATH
+            # Ou téléchargez le binaire depuis les assets de cette release
             \`\`\`
 
             ### 🔗 Liens utiles
@@ -467,9 +436,4 @@ jobs:
     - name: Delete build artifacts
       uses: geekyeggo/delete-artifact@v4
       with:
-        name: |
-          x86_64-unknown-linux-gnu
-          x86_64-unknown-linux-musl
-          x86_64-pc-windows-msvc
-          x86_64-apple-darwin
-          aarch64-apple-darwin
+        name: release-binary
