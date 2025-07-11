@@ -1,0 +1,438 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Vérification de cohérence pré-release
+  pre-release-checks:
+    name: Pre-release Consistency Checks
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version-check.outputs.version }}
+      tag: ${{ steps.version-check.outputs.tag }}
+      is-consistent: ${{ steps.version-check.outputs.is-consistent }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Version consistency check
+      id: version-check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Récupérer le tag depuis l'événement
+          const tag = context.ref.replace('refs/tags/', '');
+          const expectedVersion = tag.startsWith('v') ? tag.slice(1) : tag;
+          
+          console.log(`Tag: ${tag}`);
+          console.log(`Expected version: ${expectedVersion}`);
+          
+          // Lire la version dans Cargo.toml
+          const cargoTomlPath = path.join(process.env.GITHUB_WORKSPACE, 'Cargo.toml');
+          const cargoToml = fs.readFileSync(cargoTomlPath, 'utf8');
+          const cargoVersionMatch = cargoToml.match(/^version\s*=\s*"([^"]+)"/m);
+          const cargoVersion = cargoVersionMatch ? cargoVersionMatch[1] : null;
+          
+          // Lire la version dans main.rs
+          const mainRsPath = path.join(process.env.GITHUB_WORKSPACE, 'src', 'main.rs');
+          const mainRs = fs.readFileSync(mainRsPath, 'utf8');
+          const mainVersionMatch = mainRs.match(/version\s*=\s*"([^"]+)"/);
+          const mainVersion = mainVersionMatch ? mainVersionMatch[1] : null;
+          
+          console.log(`Cargo.toml version: ${cargoVersion}`);
+          console.log(`main.rs version: ${mainVersion}`);
+          
+          // Vérifier la cohérence
+          let isConsistent = true;
+          let errors = [];
+          
+          if (!cargoVersion) {
+            errors.push('❌ Impossible de lire la version dans Cargo.toml');
+            isConsistent = false;
+          }
+          
+          if (!mainVersion) {
+            errors.push('❌ Impossible de lire la version dans src/main.rs');
+            isConsistent = false;
+          }
+          
+          if (cargoVersion && cargoVersion !== expectedVersion) {
+            errors.push(`❌ Version dans Cargo.toml (${cargoVersion}) != tag (${expectedVersion})`);
+            isConsistent = false;
+          }
+          
+          if (mainVersion && mainVersion !== expectedVersion) {
+            errors.push(`❌ Version dans main.rs (${mainVersion}) != tag (${expectedVersion})`);
+            isConsistent = false;
+          }
+          
+          if (cargoVersion && mainVersion && cargoVersion !== mainVersion) {
+            errors.push(`❌ Version Cargo.toml (${cargoVersion}) != main.rs (${mainVersion})`);
+            isConsistent = false;
+          }
+          
+          // Vérifier si la version existe déjà sur crates.io
+          try {
+            const response = await fetch(`https://crates.io/api/v1/crates/xsshend/${expectedVersion}`);
+            if (response.ok) {
+              console.log(`⚠️  Version ${expectedVersion} existe déjà sur crates.io`);
+            } else {
+              console.log(`✅ Version ${expectedVersion} n'existe pas encore sur crates.io`);
+            }
+          } catch (error) {
+            console.log(`⚠️  Impossible de vérifier crates.io: ${error.message}`);
+          }
+          
+          // Vérifier si la release GitHub existe déjà
+          try {
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: tag
+            });
+            errors.push(`❌ Release GitHub ${tag} existe déjà (créée le ${release.created_at})`);
+            isConsistent = false;
+          } catch (error) {
+            if (error.status === 404) {
+              console.log(`✅ Release GitHub ${tag} n'existe pas encore`);
+            } else {
+              console.log(`⚠️  Impossible de vérifier la release GitHub: ${error.message}`);
+            }
+          }
+          
+          // Afficher le résultat
+          if (isConsistent) {
+            console.log('✅ Toutes les vérifications de cohérence sont passées');
+            core.summary.addHeading('🎉 Vérifications de cohérence réussies');
+            core.summary.addTable([
+              ['Élément', 'Version', 'Status'],
+              ['Tag Git', tag, '✅'],
+              ['Cargo.toml', cargoVersion || 'N/A', cargoVersion === expectedVersion ? '✅' : '❌'],
+              ['main.rs', mainVersion || 'N/A', mainVersion === expectedVersion ? '✅' : '❌']
+            ]);
+          } else {
+            console.log('❌ Des incohérences de version ont été détectées:');
+            errors.forEach(error => console.log(error));
+            
+            core.summary.addHeading('❌ Incohérences détectées');
+            core.summary.addList(errors);
+            core.summary.addHeading('🔧 Actions requises');
+            core.summary.addRaw(`
+            Pour corriger ces problèmes:
+            1. Mettez à jour la version dans \`Cargo.toml\` vers \`${expectedVersion}\`
+            2. Mettez à jour la version dans \`src/main.rs\` vers \`${expectedVersion}\`
+            3. Committez les changements
+            4. Supprimez et recréez le tag si nécessaire
+            `);
+            
+            core.setFailed('Version consistency check failed');
+          }
+          
+          // Écrire le résumé
+          await core.summary.write();
+          
+          // Définir les outputs
+          core.setOutput('version', expectedVersion);
+          core.setOutput('tag', tag);
+          core.setOutput('is-consistent', isConsistent.toString());
+          
+          return {
+            version: expectedVersion,
+            tag: tag,
+            isConsistent: isConsistent
+          };
+
+  # Tests avant release
+  test:
+    name: Test before release
+    runs-on: ubuntu-latest
+    needs: pre-release-checks
+    if: needs.pre-release-checks.outputs.is-consistent == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Set up Rust cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Run tests
+      run: cargo test --verbose
+
+    - name: Build release
+      run: cargo build --release --verbose
+
+    - name: Run release binary test
+      run: |
+        ./target/release/xsshend --version
+        ./target/release/xsshend --help
+
+  # Build multi-platform
+  build:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: [pre-release-checks, test]
+    if: needs.pre-release-checks.outputs.is-consistent == 'true'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            suffix: ""
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: ".exe"
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            suffix: ""
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Install musl tools (Linux musl only)
+      if: matrix.target == 'x86_64-unknown-linux-musl'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools
+
+    - name: Set up Rust cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Build release binary
+      run: cargo build --release --target ${{ matrix.target }} --verbose
+
+    - name: Create archive
+      shell: bash
+      run: |
+        ARCHIVE_NAME="xsshend-${{ needs.pre-release-checks.outputs.version }}-${{ matrix.target }}"
+        BINARY_PATH="target/${{ matrix.target }}/release/xsshend${{ matrix.suffix }}"
+        
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          7z a "${ARCHIVE_NAME}.zip" "${BINARY_PATH}"
+          echo "ARCHIVE=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+        else
+          tar czf "${ARCHIVE_NAME}.tar.gz" -C "target/${{ matrix.target }}/release" "xsshend${{ matrix.suffix }}"
+          echo "ARCHIVE=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+        fi
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.target }}
+        path: ${{ env.ARCHIVE }}
+
+  # Publication sur crates.io
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [pre-release-checks, build]
+    if: needs.pre-release-checks.outputs.is-consistent == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Set up Rust cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ubuntu-latest-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Publish to crates.io
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: |
+        echo "Publishing xsshend version ${{ needs.pre-release-checks.outputs.version }} to crates.io..."
+        cargo publish --verbose
+
+  # Création de la release GitHub
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [pre-release-checks, build, publish]
+    if: needs.pre-release-checks.outputs.is-consistent == 'true'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts/
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets/
+        find artifacts/ -name "*.tar.gz" -o -name "*.zip" | while read file; do
+          cp "$file" release-assets/
+        done
+        ls -la release-assets/
+
+    - name: Generate release notes
+      id: release-notes
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Lire les notes de release depuis RELEASE_NOTES_v0.2.2.md si elles existent
+          const releaseNotesPath = path.join(process.env.GITHUB_WORKSPACE, 'RELEASE_NOTES_${{ needs.pre-release-checks.outputs.tag }}.md');
+          let releaseBody = '';
+          
+          if (fs.existsSync(releaseNotesPath)) {
+            releaseBody = fs.readFileSync(releaseNotesPath, 'utf8');
+            console.log('✅ Release notes trouvées dans le fichier local');
+          } else {
+            // Générer des notes automatiques
+            releaseBody = `## xsshend ${{ needs.pre-release-checks.outputs.version }}
+
+            ### 🚀 Nouvelle version
+
+            Cette release contient les dernières améliorations et corrections de bugs pour xsshend.
+
+            ### 📦 Téléchargements
+
+            Choisissez le binaire correspondant à votre système :
+
+            - **Linux x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-unknown-linux-gnu.tar.gz\`
+            - **Linux x86_64 (musl)**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-unknown-linux-musl.tar.gz\`
+            - **Windows x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-pc-windows-msvc.zip\`
+            - **macOS x86_64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-x86_64-apple-darwin.tar.gz\`
+            - **macOS ARM64**: \`xsshend-${{ needs.pre-release-checks.outputs.version }}-aarch64-apple-darwin.tar.gz\`
+
+            ### 📋 Installation
+
+            \`\`\`bash
+            # Avec cargo
+            cargo install xsshend
+
+            # Ou téléchargez le binaire et ajoutez-le à votre PATH
+            \`\`\`
+
+            ### 🔗 Liens utiles
+
+            - 📚 [Documentation](https://docs.rs/xsshend)
+            - 📦 [crates.io](https://crates.io/crates/xsshend)
+            - 🐛 [Signaler un bug](https://github.com/${{ github.repository }}/issues)
+
+            ---
+            *Généré automatiquement le $(date)*`;
+            
+            console.log('📝 Notes de release générées automatiquement');
+          }
+          
+          core.setOutput('body', releaseBody);
+          return releaseBody;
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ needs.pre-release-checks.outputs.tag }}
+        name: xsshend ${{ needs.pre-release-checks.outputs.version }}
+        body: ${{ steps.release-notes.outputs.body }}
+        draft: false
+        prerelease: false
+        files: release-assets/*
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Post-release verification
+      uses: actions/github-script@v7
+      with:
+        script: |
+          console.log('🎉 Release créée avec succès !');
+          
+          // Vérifier crates.io
+          const version = '${{ needs.pre-release-checks.outputs.version }}';
+          try {
+            const response = await fetch(`https://crates.io/api/v1/crates/xsshend/${version}`);
+            if (response.ok) {
+              console.log(`✅ Version ${version} disponible sur crates.io`);
+            } else {
+              console.log(`⚠️  Version ${version} pas encore disponible sur crates.io (peut prendre quelques minutes)`);
+            }
+          } catch (error) {
+            console.log(`❌ Erreur lors de la vérification crates.io: ${error.message}`);
+          }
+          
+          // Créer un résumé final
+          core.summary.addHeading('🎉 Release ${{ needs.pre-release-checks.outputs.tag }} créée avec succès');
+          core.summary.addTable([
+            ['Élément', 'Status', 'Lien'],
+            ['GitHub Release', '✅ Créée', `https://github.com/${{ github.repository }}/releases/tag/${{ needs.pre-release-checks.outputs.tag }}`],
+            ['crates.io', '⏳ En cours', `https://crates.io/crates/xsshend/${version}`],
+            ['Documentation', '⏳ En cours', `https://docs.rs/xsshend/${version}`]
+          ]);
+          
+          await core.summary.write();
+
+  # Nettoyage des artefacts
+  cleanup:
+    name: Cleanup artifacts
+    runs-on: ubuntu-latest
+    needs: [release]
+    if: always()
+    
+    steps:
+    - name: Delete build artifacts
+      uses: geekyeggo/delete-artifact@v4
+      with:
+        name: |
+          x86_64-unknown-linux-gnu
+          x86_64-unknown-linux-musl
+          x86_64-pc-windows-msvc
+          x86_64-apple-darwin
+          aarch64-apple-darwin

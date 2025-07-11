@@ -2,6 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/xsshend.svg)](https://crates.io/crates/xsshend)
 [![Documentation](https://docs.rs/xsshend/badge.svg)](https://docs.rs/xsshend)
+[![CI](https://github.com/williamdes/xsshend/workflows/CI/badge.svg)](https://github.com/williamdes/xsshend/actions/workflows/ci.yml)
+[![Release](https://github.com/williamdes/xsshend/workflows/Release/badge.svg)](https://github.com/williamdes/xsshend/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-2024%2B-orange.svg)](https://www.rust-lang.org)
 

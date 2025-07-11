@@ -1,0 +1,41 @@
+[workspace]
+# Configuration générale du workspace
+changelog_update = true
+git_release_enable = false  # Nous gérons les releases via GitHub Actions
+git_tag_enable = true
+release = true
+
+[[package]]
+name = "xsshend"
+changelog_update = true
+git_release_enable = true
+release = true
+git_tag_name = "v{{version}}"
+git_release_draft = false
+git_release_name = "xsshend {{version}}"
+
+# Gestion du changelog
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+"""
+
+# Configuration des commits conventionnels
+[commit_parser]
+# Types de commits qui déclenchent une nouvelle version
+bump_minor = ["feat"]
+bump_patch = ["fix", "perf", "refactor"]
+# Types de commits qui ne déclenchent pas de nouvelle version
+ignore = ["chore", "ci", "docs", "style", "test"]
+
+# Configuration des releases GitHub
+[git_release]
+enable_repo_link = true
+enable_pr_link = true
+enable_compare_link = true
