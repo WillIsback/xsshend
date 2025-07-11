@@ -299,6 +299,11 @@ impl MultiScreenEventHandler {
                     }
                 }
             }
+            KeyCode::Char('v') if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                // 'v' pour basculer la visibilité de la passphrase
+                state.toggle_passphrase_visibility();
+                state.add_log("🔍 Visibilité de la passphrase basculée");
+            }
             KeyCode::Char(c) => {
                 // Ajouter le caractère à la passphrase
                 state.passphrase_input.push(c);
@@ -308,18 +313,26 @@ impl MultiScreenEventHandler {
                 state.passphrase_input.pop();
             }
             KeyCode::Tab => {
-                // Basculer la visibilité de la passphrase
-                state.toggle_passphrase_visibility();
+                // Passer à l'écran suivant après validation
+                match state.validate_passphrase() {
+                    Ok(()) => {
+                        state.add_log("✅ Passphrase validée, passage au serveur");
+                        state.next_screen()?;
+                    }
+                    Err(e) => {
+                        state.add_log(&format!("❌ Erreur validation passphrase: {}", e));
+                    }
+                }
             }
             KeyCode::Enter => {
                 // Valider la passphrase et passer à l'écran suivant
                 match state.validate_passphrase() {
                     Ok(()) => {
+                        state.add_log("✅ Passphrase validée, passage au serveur");
                         state.next_screen()?;
                     }
-                    Err(_) => {
-                        // L'erreur est déjà loggée dans validate_passphrase
-                        // Rester sur l'écran pour permettre une nouvelle tentative
+                    Err(e) => {
+                        state.add_log(&format!("❌ Validation échouée: {}. Réessayez.", e));
                     }
                 }
             }

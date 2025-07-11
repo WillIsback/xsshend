@@ -586,8 +586,10 @@ impl PassphraseInputScreen {
         // Messages de status
         let status_text = if state.pending_key_for_passphrase.is_some() {
             "💡 Entrez la passphrase de votre clé SSH.\n   Laissez vide si la clé n'a pas de passphrase."
-        } else {
+        } else if state.validated_ssh_key.is_some() {
             "✅ Passphrase validée avec succès !"
+        } else {
+            "🔐 En attente de saisie de passphrase..."
         };
 
         let status = Paragraph::new(status_text)
@@ -597,7 +599,7 @@ impl PassphraseInputScreen {
 
         // Instructions
         let instructions_text = if state.pending_key_for_passphrase.is_some() {
-            "🔐 Passphrase: Tapez votre passphrase | Tab: Afficher/Masquer | Entrée: Valider | Esc: Retour | s: Passer sans passphrase"
+            "🔐 Passphrase: Tapez votre passphrase | v: Afficher/Masquer | Entrée/Tab: Valider → | Esc: Retour | s: Passer sans passphrase"
         } else {
             "✅ Passphrase validée | Entrée/Tab: Continuer → | Esc: Retour | q: Quitter"
         };

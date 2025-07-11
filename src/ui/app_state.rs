@@ -125,37 +125,10 @@ impl AppState {
                 }
             }
             AppScreen::SshKeySelection => {
-                // Vérifier si la clé sélectionnée a besoin d'une passphrase
-                if let Some(ref key) = self.pending_key_for_passphrase {
-                    // Tester si la clé fonctionne sans passphrase
-                    if let Some(ref key_manager) = self.ssh_key_manager {
-                        match key_manager.validate_key_passphrase(key, None) {
-                            Ok(true) => {
-                                // La clé fonctionne sans passphrase, créer directement la clé validée
-                                self.validated_ssh_key =
-                                    Some(crate::ssh::keys::SshKeyWithPassphrase {
-                                        key: key.clone(),
-                                        passphrase: None,
-                                    });
-                                self.add_log(&format!(
-                                    "🔑 Clé SSH validée (sans passphrase): {}",
-                                    key.description()
-                                ));
-                                self.pending_key_for_passphrase = None;
-                                self.current_screen = AppScreen::ServerSelection;
-                            }
-                            Ok(false) => {
-                                // La clé a besoin d'une passphrase
-                                self.current_screen = AppScreen::PassphraseInput;
-                            }
-                            Err(_) => {
-                                // Erreur de validation, aller à l'écran de passphrase par défaut
-                                self.current_screen = AppScreen::PassphraseInput;
-                            }
-                        }
-                    } else {
-                        self.current_screen = AppScreen::PassphraseInput;
-                    }
+                // TOUJOURS aller à l'écran de saisie de passphrase après sélection de clé
+                if self.pending_key_for_passphrase.is_some() {
+                    self.current_screen = AppScreen::PassphraseInput;
+                    self.add_log("🔐 Passez à l'écran de saisie de passphrase");
                 } else {
                     // Pas de clé en attente, passer directement au serveur
                     self.current_screen = AppScreen::ServerSelection;
