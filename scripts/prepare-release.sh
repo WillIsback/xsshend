@@ -238,6 +238,10 @@ if [[ "$DRY_RUN" == "false" ]]; then
     # Mettre à jour main.rs
     sed -i "s/\.version(\".*\")/\.version(\"$VERSION\")/" src/main.rs
     
+    # Forcer la mise à jour du Cargo.lock avec la nouvelle version
+    log_info "Mise à jour du Cargo.lock..."
+    cargo check > /dev/null 2>&1
+    
     log_success "Versions mises à jour"
 else
     log_info "Simulation: mise à jour des versions vers $VERSION"
@@ -267,11 +271,21 @@ fi
 # Créer le commit
 log_info "Création du commit pour la version $VERSION..."
 if [[ "$DRY_RUN" == "false" ]]; then
-    git add Cargo.toml src/main.rs
+    git add Cargo.toml src/main.rs Cargo.lock
     git commit -m "chore: bump version to $VERSION"
     log_success "Commit créé"
 else
     log_info "Simulation: création du commit"
+fi
+
+# Pousser le commit AVANT de créer le tag si --push est activé
+if [[ "$PUSH_TAG" == "true" && "$DRY_RUN" == "false" ]]; then
+    log_info "Push du commit de version..."
+    if ! git push origin "$CURRENT_BRANCH"; then
+        log_error "Échec du push du commit"
+        exit 1
+    fi
+    log_success "Commit de version poussé avec succès"
 fi
 
 # Créer le tag
@@ -283,18 +297,11 @@ else
     log_info "Simulation: création du tag $TAG"
 fi
 
-# Pousser si demandé
+# Pousser le tag si demandé
 if [[ "$PUSH_TAG" == "true" ]]; then
-    log_info "Push du commit et du tag..."
+    log_info "Push du tag..."
     if [[ "$DRY_RUN" == "false" ]]; then
-        # D'abord pousser le commit
-        if ! git push origin "$CURRENT_BRANCH"; then
-            log_error "Échec du push du commit"
-            exit 1
-        fi
-        log_success "Commit poussé avec succès"
-        
-        # Ensuite pousser le tag pour déclencher le workflow
+        # Pousser le tag pour déclencher le workflow
         if ! git push origin "$TAG"; then
             log_error "Échec du push du tag $TAG"
             exit 1
