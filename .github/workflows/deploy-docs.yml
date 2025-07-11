@@ -1,0 +1,48 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/deploy-docs.yml'
+  workflow_dispatch:  # Permet de déclencher manuellement
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Empêcher les déploiements simultanés de documentation
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy-docs:
+    name: Deploy Documentation to GitHub Pages
+    runs-on: ubuntu-latest
+    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+    
+    - name: Build documentation with Jekyll
+      uses: actions/jekyll-build-pages@v1
+      with:
+        source: ./docs
+        destination: ./_site
+    
+    - name: Upload artifact to Pages
+      uses: actions/upload-pages-artifact@v2
+    
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v2
