@@ -48,7 +48,7 @@ jobs:
           // Lire la version dans main.rs
           const mainRsPath = path.join(process.env.GITHUB_WORKSPACE, 'src', 'main.rs');
           const mainRs = fs.readFileSync(mainRsPath, 'utf8');
-          const mainVersionMatch = mainRs.match(/version\s*=\s*"([^"]+)"/);
+          const mainVersionMatch = mainRs.match(/\.version\s*\(\s*"([^"]+)"\s*\)/);
           const mainVersion = mainVersionMatch ? mainVersionMatch[1] : null;
           
           console.log(`Cargo.toml version: ${cargoVersion}`);

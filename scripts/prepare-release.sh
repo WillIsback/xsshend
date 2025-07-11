@@ -46,6 +46,8 @@ Options:
   -d, --dry-run    Simuler sans faire de changements
   -p, --push       Pousser automatiquement le tag
   --no-test        Ignorer les tests
+  --no-fmt         Ignorer la vérification du formatage avec cargo fmt
+  --no-clippy      Ignorer la vérification avec cargo clippy
   --force          Forcer même si des incohérences sont détectées
 
 Exemples:
@@ -75,6 +77,8 @@ shift
 DRY_RUN=false
 PUSH_TAG=false
 RUN_TESTS=true
+RUN_FMT=true
+RUN_CLIPPY=true
 FORCE=false
 
 while [[ $# -gt 0 ]]; do
@@ -91,6 +95,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-test)
             RUN_TESTS=false
+            ;;
+        --no-fmt)
+            RUN_FMT=false
+            ;;
+        --no-clippy)
+            RUN_CLIPPY=false
             ;;
         --force)
             FORCE=true
@@ -119,6 +129,48 @@ fi
 
 # Vérifier que nous sommes dans le bon répertoire
 cd "$PROJECT_ROOT"
+
+# Vérifications préliminaires de la qualité du code
+if [[ "$RUN_FMT" == "true" ]]; then
+    log_info "Vérification du formatage du code avec cargo fmt..."
+    if [[ "$DRY_RUN" == "false" ]]; then
+        if ! cargo fmt --check; then
+            log_error "Le code n'est pas formaté correctement"
+            log_info "Exécutez 'cargo fmt' pour corriger le formatage avant de continuer"
+            if [[ "$FORCE" == "false" ]]; then
+                exit 1
+            else
+                log_warning "Formatage incorrect détecté mais ignoré avec --force"
+            fi
+        fi
+        log_success "Formatage du code vérifié"
+    else
+        log_info "Simulation: vérification du formatage avec cargo fmt"
+    fi
+fi
+
+if [[ "$RUN_CLIPPY" == "true" ]]; then
+    log_info "Vérification des bonnes pratiques avec cargo clippy..."
+    if [[ "$DRY_RUN" == "false" ]]; then
+        if ! cargo clippy --all-targets --all-features -- -D warnings; then
+            log_error "cargo clippy a détecté des problèmes"
+            log_warning "Veuillez examiner et corriger les avertissements/erreurs de clippy"
+            log_info "Utilisez 'cargo clippy --fix' pour corriger automatiquement certains problèmes"
+            if [[ "$FORCE" == "false" ]]; then
+                exit 1
+            else
+                log_warning "Problèmes clippy détectés mais ignorés avec --force"
+            fi
+        fi
+        log_success "Vérifications clippy passées"
+    else
+        log_info "Simulation: vérification avec cargo clippy"
+    fi
+fi
+
+if [[ "$RUN_FMT" == "true" || "$RUN_CLIPPY" == "true" ]]; then
+    log_success "Vérifications de qualité du code passées"
+fi
 
 # Vérifier que nous sommes sur la branche main ou master
 CURRENT_BRANCH=$(git branch --show-current)
@@ -235,10 +287,29 @@ fi
 if [[ "$PUSH_TAG" == "true" ]]; then
     log_info "Push du commit et du tag..."
     if [[ "$DRY_RUN" == "false" ]]; then
-        git push origin $CURRENT_BRANCH
-        git push origin "$TAG"
-        log_success "Commit et tag poussés"
-        log_info "Le workflow GitHub Actions va maintenant prendre le relais"
+        # D'abord pousser le commit
+        if ! git push origin "$CURRENT_BRANCH"; then
+            log_error "Échec du push du commit"
+            exit 1
+        fi
+        log_success "Commit poussé avec succès"
+        
+        # Ensuite pousser le tag pour déclencher le workflow
+        if ! git push origin "$TAG"; then
+            log_error "Échec du push du tag $TAG"
+            exit 1
+        fi
+        log_success "Tag $TAG poussé avec succès"
+        
+        # Attendre un peu puis vérifier que le tag est bien sur le remote
+        sleep 2
+        if git ls-remote --tags origin | grep -q "$TAG"; then
+            log_success "Tag $TAG confirmé sur le remote"
+            log_info "🚀 Le workflow GitHub Actions va maintenant prendre le relais"
+            log_info "🔗 Surveillez le workflow sur : https://github.com/${GITHUB_REPO:-$(git config --get remote.origin.url | sed 's|.*github.com[:/]\([^/]*\)/\([^/]*\)\.git|\1/\2|')}/actions"
+        else
+            log_warning "Tag $TAG non trouvé sur le remote, le workflow pourrait ne pas se déclencher"
+        fi
     else
         log_info "Simulation: push du commit et du tag"
     fi
