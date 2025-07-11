@@ -635,13 +635,13 @@ impl AppState {
     }
 
     /// Vérifie si une clé a besoin d'une passphrase
+    #[allow(dead_code)]
     pub fn key_needs_passphrase(&self, key: &crate::ssh::keys::SshKey) -> bool {
         if let Some(ref key_manager) = self.ssh_key_manager {
             // Tester d'abord sans passphrase
-            key_manager
+            !key_manager
                 .validate_key_passphrase(key, None)
                 .unwrap_or(false)
-                == false
         } else {
             false
         }
