@@ -17,7 +17,7 @@ use super::{
     app_state::{AppScreen, AppState},
     multi_screen_handler::MultiScreenEventHandler,
     screens::{
-        DestinationInputScreen, FileSelectionScreen, PassphraseInputScreen, ProgressScreen, 
+        DestinationInputScreen, FileSelectionScreen, PassphraseInputScreen, ProgressScreen,
         ServerSelectionScreen, SshKeySelectionScreen,
     },
     theme::get_theme_colors,

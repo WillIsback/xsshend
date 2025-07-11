@@ -577,7 +577,10 @@ impl PassphraseInputScreen {
         let passphrase_style = ratatui_theme::selection_style(theme_colors);
         let passphrase_input = Paragraph::new(format!("🔐 {}", passphrase_display))
             .style(passphrase_style)
-            .block(ratatui_theme::themed_block(theme_colors, "Passphrase (Tab: Afficher/Masquer)"));
+            .block(ratatui_theme::themed_block(
+                theme_colors,
+                "Passphrase (Tab: Afficher/Masquer)",
+            ));
         f.render_widget(passphrase_input, chunks[2]);
 
         // Messages de status

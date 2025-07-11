@@ -62,7 +62,7 @@ pub struct AppState {
     pub selected_ssh_key: Option<crate::ssh::keys::SshKey>,
     pub validated_ssh_key: Option<crate::ssh::keys::SshKeyWithPassphrase>,
     pub ssh_key_selection_cursor: usize,
-    
+
     // Gestion de la saisie de passphrase
     pub passphrase_input: String,
     pub passphrase_input_visible: bool,
@@ -132,11 +132,15 @@ impl AppState {
                         match key_manager.validate_key_passphrase(key, None) {
                             Ok(true) => {
                                 // La clé fonctionne sans passphrase, créer directement la clé validée
-                                self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
-                                    key: key.clone(),
-                                    passphrase: None,
-                                });
-                                self.add_log(&format!("🔑 Clé SSH validée (sans passphrase): {}", key.description()));
+                                self.validated_ssh_key =
+                                    Some(crate::ssh::keys::SshKeyWithPassphrase {
+                                        key: key.clone(),
+                                        passphrase: None,
+                                    });
+                                self.add_log(&format!(
+                                    "🔑 Clé SSH validée (sans passphrase): {}",
+                                    key.description()
+                                ));
                                 self.pending_key_for_passphrase = None;
                                 self.current_screen = AppScreen::ServerSelection;
                             }
@@ -583,7 +587,9 @@ impl AppState {
 
     /// Valide la passphrase saisie pour la clé en attente
     pub fn validate_passphrase(&mut self) -> Result<()> {
-        if let (Some(key), Some(key_manager)) = (&self.pending_key_for_passphrase, &self.ssh_key_manager) {
+        if let (Some(key), Some(key_manager)) =
+            (&self.pending_key_for_passphrase, &self.ssh_key_manager)
+        {
             let passphrase = if self.passphrase_input.is_empty() {
                 None
             } else {
@@ -598,11 +604,11 @@ impl AppState {
                         passphrase,
                     });
                     self.add_log(&format!("🔑 Clé SSH validée: {}", key.description()));
-                    
+
                     // Nettoyer l'état de saisie
                     self.passphrase_input.clear();
                     self.pending_key_for_passphrase = None;
-                    
+
                     Ok(())
                 }
                 Ok(false) => {
@@ -622,17 +628,20 @@ impl AppState {
             Err(anyhow::anyhow!("Aucune clé en attente de validation"))
         }
     }
-    
+
     /// Bascule la visibilité du mot de passe
     pub fn toggle_passphrase_visibility(&mut self) {
         self.passphrase_input_visible = !self.passphrase_input_visible;
     }
-    
+
     /// Vérifie si une clé a besoin d'une passphrase
     pub fn key_needs_passphrase(&self, key: &crate::ssh::keys::SshKey) -> bool {
         if let Some(ref key_manager) = self.ssh_key_manager {
             // Tester d'abord sans passphrase
-            key_manager.validate_key_passphrase(key, None).unwrap_or(false) == false
+            key_manager
+                .validate_key_passphrase(key, None)
+                .unwrap_or(false)
+                == false
         } else {
             false
         }
