@@ -45,6 +45,7 @@ impl MultiScreenEventHandler {
         match state.current_screen {
             AppScreen::FileSelection => Self::handle_file_selection(state, key_event)?,
             AppScreen::SshKeySelection => Self::handle_ssh_key_selection(state, key_event)?,
+            AppScreen::PassphraseInput => Self::handle_passphrase_input(state, key_event)?,
             AppScreen::ServerSelection => Self::handle_server_selection(state, key_event)?,
             AppScreen::DestinationInput => Self::handle_destination_input(state, key_event)?,
             AppScreen::UploadProgress => Self::handle_upload_progress(state, key_event)?,
@@ -277,6 +278,54 @@ impl MultiScreenEventHandler {
                 } else if !transfer_names.is_empty() {
                     state.selected_transfer = Some(transfer_names[0].clone());
                 }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Gestion des événements pour l'écran de saisie de passphrase
+    fn handle_passphrase_input(state: &mut AppState, key_event: KeyEvent) -> Result<()> {
+        match key_event.code {
+            KeyCode::Char('s') if !key_event.modifiers.contains(KeyModifiers::CONTROL) => {
+                // Passer sans passphrase (laisser vide et valider)
+                state.passphrase_input.clear();
+                match state.validate_passphrase() {
+                    Ok(()) => {
+                        state.next_screen()?;
+                    }
+                    Err(_) => {
+                        // L'erreur est déjà loggée
+                    }
+                }
+            }
+            KeyCode::Char(c) => {
+                // Ajouter le caractère à la passphrase
+                state.passphrase_input.push(c);
+            }
+            KeyCode::Backspace => {
+                // Effacer le dernier caractère
+                state.passphrase_input.pop();
+            }
+            KeyCode::Tab => {
+                // Basculer la visibilité de la passphrase
+                state.toggle_passphrase_visibility();
+            }
+            KeyCode::Enter => {
+                // Valider la passphrase et passer à l'écran suivant
+                match state.validate_passphrase() {
+                    Ok(()) => {
+                        state.next_screen()?;
+                    }
+                    Err(_) => {
+                        // L'erreur est déjà loggée dans validate_passphrase
+                        // Rester sur l'écran pour permettre une nouvelle tentative
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                // Retour à l'écran précédent
+                state.previous_screen();
             }
             _ => {}
         }

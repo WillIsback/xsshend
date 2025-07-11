@@ -17,8 +17,8 @@ use super::{
     app_state::{AppScreen, AppState},
     multi_screen_handler::MultiScreenEventHandler,
     screens::{
-        DestinationInputScreen, FileSelectionScreen, ProgressScreen, ServerSelectionScreen,
-        SshKeySelectionScreen,
+        DestinationInputScreen, FileSelectionScreen, PassphraseInputScreen, ProgressScreen, 
+        ServerSelectionScreen, SshKeySelectionScreen,
     },
     theme::get_theme_colors,
 };
@@ -140,6 +140,14 @@ impl MultiScreenTuiApp {
                     }
                     AppScreen::SshKeySelection => {
                         SshKeySelectionScreen::render_with_theme(
+                            f,
+                            f.size(),
+                            &state,
+                            &theme_colors,
+                        );
+                    }
+                    AppScreen::PassphraseInput => {
+                        PassphraseInputScreen::render_with_theme(
                             f,
                             f.size(),
                             &state,

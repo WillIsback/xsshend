@@ -507,6 +507,105 @@ impl ProgressScreen {
     }
 }
 
+/// Composant pour la saisie de passphrase SSH
+pub struct PassphraseInputScreen;
+
+impl PassphraseInputScreen {
+    #[allow(dead_code)]
+    pub fn render(f: &mut Frame, area: Rect, state: &AppState) {
+        // Utiliser les couleurs par défaut (pour compatibilité)
+        let theme_colors = crate::ui::theme::get_theme_colors();
+        Self::render_with_theme(f, area, state, &theme_colors);
+    }
+
+    pub fn render_with_theme(
+        f: &mut Frame,
+        area: Rect,
+        state: &AppState,
+        theme_colors: &ThemeColors,
+    ) {
+        // Layout principal
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Titre
+                Constraint::Length(6), // Info sur la clé sélectionnée
+                Constraint::Length(6), // Champ de saisie de passphrase
+                Constraint::Min(4),    // Messages d'erreur / status
+                Constraint::Length(4), // Instructions
+            ])
+            .split(area);
+
+        // Titre avec couleurs du thème
+        let title = Paragraph::new("🔐 Saisie de la passphrase SSH")
+            .style(ratatui_theme::title_primary_style(theme_colors))
+            .block(ratatui_theme::primary_block(theme_colors, ""));
+        f.render_widget(title, chunks[0]);
+
+        // Informations sur la clé sélectionnée
+        let key_info = if let Some(ref key) = state.pending_key_for_passphrase {
+            format!(
+                "🔑 Clé sélectionnée: {}\n📁 Fichier: {}\n🔧 Type: {}",
+                key.name,
+                key.private_key_path.display(),
+                key.key_type
+            )
+        } else if let Some(ref key) = state.selected_ssh_key {
+            format!(
+                "🔑 Clé sélectionnée: {}\n📁 Fichier: {}\n🔧 Type: {}",
+                key.name,
+                key.private_key_path.display(),
+                key.key_type
+            )
+        } else {
+            "❌ Aucune clé sélectionnée".to_string()
+        };
+
+        let key_info_paragraph = Paragraph::new(key_info)
+            .style(ratatui_theme::text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Clé SSH"))
+            .wrap(Wrap { trim: true });
+        f.render_widget(key_info_paragraph, chunks[1]);
+
+        // Champ de saisie de passphrase
+        let passphrase_display = if state.passphrase_input_visible {
+            state.passphrase_input.clone()
+        } else {
+            "*".repeat(state.passphrase_input.len())
+        };
+
+        let passphrase_style = ratatui_theme::selection_style(theme_colors);
+        let passphrase_input = Paragraph::new(format!("🔐 {}", passphrase_display))
+            .style(passphrase_style)
+            .block(ratatui_theme::themed_block(theme_colors, "Passphrase (Tab: Afficher/Masquer)"));
+        f.render_widget(passphrase_input, chunks[2]);
+
+        // Messages de status
+        let status_text = if state.pending_key_for_passphrase.is_some() {
+            "💡 Entrez la passphrase de votre clé SSH.\n   Laissez vide si la clé n'a pas de passphrase."
+        } else {
+            "✅ Passphrase validée avec succès !"
+        };
+
+        let status = Paragraph::new(status_text)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::secondary_block(theme_colors, "Status"));
+        f.render_widget(status, chunks[3]);
+
+        // Instructions
+        let instructions_text = if state.pending_key_for_passphrase.is_some() {
+            "🔐 Passphrase: Tapez votre passphrase | Tab: Afficher/Masquer | Entrée: Valider | Esc: Retour | s: Passer sans passphrase"
+        } else {
+            "✅ Passphrase validée | Entrée/Tab: Continuer → | Esc: Retour | q: Quitter"
+        };
+
+        let instructions = Paragraph::new(instructions_text)
+            .style(ratatui_theme::help_text_style(theme_colors))
+            .block(ratatui_theme::themed_block(theme_colors, "Contrôles"));
+        f.render_widget(instructions, chunks[4]);
+    }
+}
+
 /// Composant pour la sélection de clé SSH
 pub struct SshKeySelectionScreen;
 

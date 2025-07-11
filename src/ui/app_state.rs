@@ -26,6 +26,7 @@ pub struct TransferProgress {
 pub enum AppScreen {
     FileSelection,
     SshKeySelection, // Nouvel écran pour la sélection de clé SSH
+    PassphraseInput, // Nouvel écran pour la saisie de passphrase
     ServerSelection,
     DestinationInput,
     UploadProgress,
@@ -61,6 +62,11 @@ pub struct AppState {
     pub selected_ssh_key: Option<crate::ssh::keys::SshKey>,
     pub validated_ssh_key: Option<crate::ssh::keys::SshKeyWithPassphrase>,
     pub ssh_key_selection_cursor: usize,
+    
+    // Gestion de la saisie de passphrase
+    pub passphrase_input: String,
+    pub passphrase_input_visible: bool,
+    pub pending_key_for_passphrase: Option<crate::ssh::keys::SshKey>,
 }
 
 impl Default for AppState {
@@ -93,6 +99,9 @@ impl Default for AppState {
             selected_ssh_key: None,
             validated_ssh_key: None,
             ssh_key_selection_cursor: 0,
+            passphrase_input: String::new(),
+            passphrase_input_visible: false,
+            pending_key_for_passphrase: None,
         }
     }
 }
@@ -116,6 +125,39 @@ impl AppState {
                 }
             }
             AppScreen::SshKeySelection => {
+                // Vérifier si la clé sélectionnée a besoin d'une passphrase
+                if let Some(ref key) = self.pending_key_for_passphrase {
+                    // Tester si la clé fonctionne sans passphrase
+                    if let Some(ref key_manager) = self.ssh_key_manager {
+                        match key_manager.validate_key_passphrase(key, None) {
+                            Ok(true) => {
+                                // La clé fonctionne sans passphrase, créer directement la clé validée
+                                self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
+                                    key: key.clone(),
+                                    passphrase: None,
+                                });
+                                self.add_log(&format!("🔑 Clé SSH validée (sans passphrase): {}", key.description()));
+                                self.pending_key_for_passphrase = None;
+                                self.current_screen = AppScreen::ServerSelection;
+                            }
+                            Ok(false) => {
+                                // La clé a besoin d'une passphrase
+                                self.current_screen = AppScreen::PassphraseInput;
+                            }
+                            Err(_) => {
+                                // Erreur de validation, aller à l'écran de passphrase par défaut
+                                self.current_screen = AppScreen::PassphraseInput;
+                            }
+                        }
+                    } else {
+                        self.current_screen = AppScreen::PassphraseInput;
+                    }
+                } else {
+                    // Pas de clé en attente, passer directement au serveur
+                    self.current_screen = AppScreen::ServerSelection;
+                }
+            }
+            AppScreen::PassphraseInput => {
                 self.current_screen = AppScreen::ServerSelection;
             }
             AppScreen::ServerSelection => {
@@ -144,8 +186,11 @@ impl AppState {
             AppScreen::SshKeySelection => {
                 self.current_screen = AppScreen::FileSelection;
             }
-            AppScreen::ServerSelection => {
+            AppScreen::PassphraseInput => {
                 self.current_screen = AppScreen::SshKeySelection;
+            }
+            AppScreen::ServerSelection => {
+                self.current_screen = AppScreen::PassphraseInput;
             }
             AppScreen::DestinationInput => {
                 self.current_screen = AppScreen::ServerSelection;
@@ -513,33 +558,12 @@ impl AppState {
         Ok(())
     }
 
-    /// Sélectionne la clé SSH actuelle et valide la passphrase
+    /// Sélectionne la clé SSH actuelle et prépare la validation de passphrase
     pub fn select_current_ssh_key(&mut self) -> Result<()> {
         if let Some(key) = self.available_ssh_keys.get(self.ssh_key_selection_cursor) {
             self.selected_ssh_key = Some(key.clone());
-
-            // Valider la passphrase immédiatement après la sélection
-            if let Some(ref key_manager) = self.ssh_key_manager {
-                match key_manager.prompt_and_validate_passphrase(key) {
-                    Ok(passphrase) => {
-                        self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
-                            key: key.clone(),
-                            passphrase,
-                        });
-                        self.add_log(&format!("🔑 Clé SSH validée: {}", key.description()));
-                    }
-                    Err(e) => {
-                        self.add_log(&format!(
-                            "❌ Erreur lors de la validation de la passphrase: {}",
-                            e
-                        ));
-                        // Réinitialiser la sélection si la validation échoue
-                        self.selected_ssh_key = None;
-                        self.validated_ssh_key = None;
-                        return Err(e);
-                    }
-                }
-            }
+            self.pending_key_for_passphrase = Some(key.clone());
+            self.add_log(&format!("🔑 Clé SSH sélectionnée: {}", key.description()));
         }
         Ok(())
     }
@@ -554,6 +578,63 @@ impl AppState {
     pub fn ssh_key_cursor_down(&mut self) {
         if self.ssh_key_selection_cursor < self.available_ssh_keys.len().saturating_sub(1) {
             self.ssh_key_selection_cursor += 1;
+        }
+    }
+
+    /// Valide la passphrase saisie pour la clé en attente
+    pub fn validate_passphrase(&mut self) -> Result<()> {
+        if let (Some(key), Some(key_manager)) = (&self.pending_key_for_passphrase, &self.ssh_key_manager) {
+            let passphrase = if self.passphrase_input.is_empty() {
+                None
+            } else {
+                Some(self.passphrase_input.clone())
+            };
+
+            // Valider la clé avec la passphrase saisie
+            match key_manager.validate_key_passphrase(key, passphrase.as_deref()) {
+                Ok(true) => {
+                    self.validated_ssh_key = Some(crate::ssh::keys::SshKeyWithPassphrase {
+                        key: key.clone(),
+                        passphrase,
+                    });
+                    self.add_log(&format!("🔑 Clé SSH validée: {}", key.description()));
+                    
+                    // Nettoyer l'état de saisie
+                    self.passphrase_input.clear();
+                    self.pending_key_for_passphrase = None;
+                    
+                    Ok(())
+                }
+                Ok(false) => {
+                    self.add_log("❌ Passphrase incorrecte");
+                    // Vider le champ mais garder la clé en attente pour retry
+                    self.passphrase_input.clear();
+                    Err(anyhow::anyhow!("Passphrase incorrecte"))
+                }
+                Err(e) => {
+                    self.add_log(&format!("❌ Erreur lors de la validation: {}", e));
+                    self.passphrase_input.clear();
+                    self.pending_key_for_passphrase = None;
+                    Err(e)
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!("Aucune clé en attente de validation"))
+        }
+    }
+    
+    /// Bascule la visibilité du mot de passe
+    pub fn toggle_passphrase_visibility(&mut self) {
+        self.passphrase_input_visible = !self.passphrase_input_visible;
+    }
+    
+    /// Vérifie si une clé a besoin d'une passphrase
+    pub fn key_needs_passphrase(&self, key: &crate::ssh::keys::SshKey) -> bool {
+        if let Some(ref key_manager) = self.ssh_key_manager {
+            // Tester d'abord sans passphrase
+            key_manager.validate_key_passphrase(key, None).unwrap_or(false) == false
+        } else {
+            false
         }
     }
 

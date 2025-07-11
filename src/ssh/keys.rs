@@ -359,7 +359,7 @@ impl SshKeyManager {
     }
 
     /// Valide qu'une clé peut être chargée avec la passphrase donnée
-    fn validate_key_passphrase(&self, key: &SshKey, passphrase: Option<&str>) -> Result<bool> {
+    pub fn validate_key_passphrase(&self, key: &SshKey, passphrase: Option<&str>) -> Result<bool> {
         use std::fs;
 
         // Lire la clé privée
