@@ -345,6 +345,9 @@ impl MultiScreenEventHandler {
                 // Sélectionner la clé courante et valider la passphrase
                 if let Err(e) = state.select_current_ssh_key() {
                     state.add_log(&format!("❌ Sélection de clé échouée: {}", e));
+                } else {
+                    // Passer à l'écran suivant (passphrase input ou server selection)
+                    state.next_screen()?;
                 }
             }
             KeyCode::Tab => {
