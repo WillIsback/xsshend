@@ -1,11 +1,11 @@
 // Client SSH/SFTP réel avec ssh2
 use anyhow::{Context, Result};
+use crossterm::terminal;
+use dialoguer::{Password, theme::ColorfulTheme};
 use dirs::home_dir;
 use ssh2::{Session, Sftp};
 use std::io::{Read, Write};
 use std::path::Path;
-use dialoguer::{Password, theme::ColorfulTheme};
-use crossterm::terminal;
 
 use super::keys::{SshKey, SshKeyManager};
 
@@ -27,7 +27,7 @@ impl TerminalModeGuard {
             }
             Err(_) => false, // Assume non-raw if we can't detect
         };
-        
+
         Ok(TerminalModeGuard { was_raw })
     }
 }
@@ -229,11 +229,11 @@ impl SshClient {
                     key.description(),
                     e
                 );
-                
+
                 // Si l'erreur semble indiquer qu'une passphrase est requise, demander la passphrase
                 if self.might_need_passphrase(&e) {
                     log::debug!("🔐 Tentative avec passphrase pour {}", key.description());
-                    
+
                     if let Some(passphrase) = self.prompt_for_passphrase(key)? {
                         match session.userauth_pubkey_file(
                             &self.username,
@@ -261,7 +261,10 @@ impl SshClient {
                             }
                         }
                     } else {
-                        log::debug!("❌ Passphrase annulée par l'utilisateur pour {}", key.description());
+                        log::debug!(
+                            "❌ Passphrase annulée par l'utilisateur pour {}",
+                            key.description()
+                        );
                         return Err(anyhow::anyhow!(
                             "Authentification annulée pour {}",
                             key.description()
@@ -292,11 +295,14 @@ impl SshClient {
 
     /// Demande la passphrase à l'utilisateur de manière interactive
     fn prompt_for_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
-        log::info!("🔐 La clé {} semble protégée par passphrase", key.description());
-        
+        log::info!(
+            "🔐 La clé {} semble protégée par passphrase",
+            key.description()
+        );
+
         // Détecter si on est dans un environnement TUI (terminal en mode raw)
         let is_in_tui = self.is_terminal_in_raw_mode();
-        
+
         if is_in_tui {
             // Utiliser rpassword pour les environnements TUI
             self.prompt_passphrase_with_rpassword(key)
@@ -310,7 +316,7 @@ impl SshClient {
     fn is_terminal_in_raw_mode(&self) -> bool {
         // Essayer de détecter si crossterm est en mode raw
         // Ceci est une heuristique car il n'y a pas de moyen direct de le savoir
-        
+
         match terminal::is_raw_mode_enabled() {
             Ok(is_raw) => {
                 log::debug!("🔍 Mode raw détecté: {}", is_raw);
@@ -328,7 +334,10 @@ impl SshClient {
     /// Prompt de passphrase avec dialoguer (pour CLI)
     fn prompt_passphrase_with_dialoguer(&self, key: &SshKey) -> Result<Option<String>> {
         match Password::with_theme(&ColorfulTheme::default())
-            .with_prompt(&format!("Entrez la passphrase pour la clé SSH '{}' (Entrée vide pour annuler)", key.name))
+            .with_prompt(&format!(
+                "Entrez la passphrase pour la clé SSH '{}' (Entrée vide pour annuler)",
+                key.name
+            ))
             .allow_empty_password(true)
             .interact()
         {
@@ -343,20 +352,25 @@ impl SshClient {
             }
             Err(e) => {
                 log::error!("❌ Erreur lors de la saisie de passphrase : {}", e);
-                Err(anyhow::anyhow!("Erreur lors de la saisie de passphrase : {}", e))
+                Err(anyhow::anyhow!(
+                    "Erreur lors de la saisie de passphrase : {}",
+                    e
+                ))
             }
         }
     }
 
     /// Prompt de passphrase avec rpassword (pour TUI)
     fn prompt_passphrase_with_rpassword(&self, key: &SshKey) -> Result<Option<String>> {
-        
         // Sortir temporairement du mode raw pour permettre l'input
         let _guard = self.temporarily_exit_raw_mode()?;
-        
-        print!("🔐 Entrez la passphrase pour la clé SSH '{}' (ou appuyez sur Entrée pour annuler): ", key.name);
+
+        print!(
+            "🔐 Entrez la passphrase pour la clé SSH '{}' (ou appuyez sur Entrée pour annuler): ",
+            key.name
+        );
         std::io::stdout().flush()?;
-        
+
         match rpassword::read_password() {
             Ok(passphrase) => {
                 if passphrase.is_empty() {
@@ -369,7 +383,10 @@ impl SshClient {
             }
             Err(e) => {
                 log::error!("❌ Erreur lors de la saisie de passphrase : {}", e);
-                Err(anyhow::anyhow!("Erreur lors de la saisie de passphrase : {}", e))
+                Err(anyhow::anyhow!(
+                    "Erreur lors de la saisie de passphrase : {}",
+                    e
+                ))
             }
         }
     }
@@ -410,15 +427,23 @@ impl SshClient {
                         return Ok(());
                     }
                     Err(e) => {
-                        log::debug!("🔓 Première tentative sans passphrase échouée pour {} : {}", key_path.display(), e);
-                        
+                        log::debug!(
+                            "🔓 Première tentative sans passphrase échouée pour {} : {}",
+                            key_path.display(),
+                            e
+                        );
+
                         // Si l'erreur semble indiquer qu'une passphrase est requise, demander la passphrase
                         if self.might_need_passphrase(&e) {
                             log::debug!("🔐 Tentative avec passphrase pour {}", key_path.display());
-                            
+
                             // Créer un SshKey temporaire pour le prompt
-                            if let Ok(temp_key) = crate::ssh::keys::SshKey::new(key_name.to_string(), key_path.clone()) {
-                                if let Ok(Some(passphrase)) = self.prompt_for_passphrase(&temp_key) {
+                            if let Ok(temp_key) = crate::ssh::keys::SshKey::new(
+                                key_name.to_string(),
+                                key_path.clone(),
+                            ) {
+                                if let Ok(Some(passphrase)) = self.prompt_for_passphrase(&temp_key)
+                                {
                                     match session.userauth_pubkey_file(
                                         &self.username,
                                         Some(Path::new(&public_key_path)),
@@ -441,7 +466,10 @@ impl SshClient {
                                         }
                                     }
                                 } else {
-                                    log::debug!("❌ Passphrase annulée pour {}", key_path.display());
+                                    log::debug!(
+                                        "❌ Passphrase annulée pour {}",
+                                        key_path.display()
+                                    );
                                 }
                             }
                         }
