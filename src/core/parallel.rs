@@ -4,7 +4,8 @@ use crate::ssh::keys::SshKeyWithPassphrase;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
+use std::thread::{self, JoinHandle};
 
 /// Callback pour le feedback de progression en temps réel
 pub type ProgressCallback = Arc<dyn Fn(&str, u64, TransferStatus) + Send + Sync>;
@@ -30,16 +31,44 @@ pub struct ConnectionInfo {
     pub host: String,
 }
 
-/// Pool de connexions SSH optimisé pour les transferts parallèles
+/// Message pour communication avec les threads de transfert
+#[derive(Debug)]
+pub enum TransferMessage {
+    /// Lancer un transfert (file_path, destination, server_name)
+    StartTransfer(String, String, String),
+    /// Arrêter le thread
+    Stop,
+}
+
+/// Résultat d'un transfert depuis un thread
+#[derive(Debug)]
+pub struct TransferResult {
+    pub server_name: String,
+    pub result: Result<u64>,
+}
+
+/// Thread de transfert dédié pour une cible
+pub struct TransferThread {
+    /// Handle du thread
+    handle: JoinHandle<()>,
+    /// Sender pour envoyer des commandes au thread
+    sender: mpsc::Sender<TransferMessage>,
+}
+
+/// Pool de connexions SSH optimisé pour les transferts parallèles avec threads dédiés
 pub struct SshConnectionPool {
     /// Cache des informations de connexion par alias
     connection_info: HashMap<String, ConnectionInfo>,
-    /// Cache des connexions SSH actives (pour réutilisation)
-    active_connections: Arc<Mutex<HashMap<String, SshClient>>>,
+    /// Threads de transfert dédiés par serveur
+    transfer_threads: HashMap<String, TransferThread>,
     /// Statistiques de connexions
     stats: Arc<Mutex<PoolStats>>,
     /// Clé SSH validée optionnelle à utiliser pour toutes les connexions
     validated_key: Option<SshKeyWithPassphrase>,
+    /// Receiver pour collecter les résultats
+    result_receiver: Option<mpsc::Receiver<TransferResult>>,
+    /// Sender pour envoyer les résultats
+    result_sender: mpsc::Sender<TransferResult>,
 }
 
 #[derive(Debug, Default)]
@@ -52,98 +81,163 @@ struct PoolStats {
 impl SshConnectionPool {
     /// Créer un nouveau pool de connexions
     pub fn new() -> Self {
+        let (result_sender, result_receiver) = mpsc::channel();
         SshConnectionPool {
             connection_info: HashMap::new(),
-            active_connections: Arc::new(Mutex::new(HashMap::new())),
+            transfer_threads: HashMap::new(),
             stats: Arc::new(Mutex::new(PoolStats::default())),
             validated_key: None,
+            result_receiver: Some(result_receiver),
+            result_sender,
         }
     }
 
     /// Créer un nouveau pool de connexions avec une clé SSH validée
     pub fn new_with_validated_key(validated_key: SshKeyWithPassphrase) -> Self {
+        let (result_sender, result_receiver) = mpsc::channel();
         SshConnectionPool {
             connection_info: HashMap::new(),
-            active_connections: Arc::new(Mutex::new(HashMap::new())),
+            transfer_threads: HashMap::new(),
             stats: Arc::new(Mutex::new(PoolStats::default())),
             validated_key: Some(validated_key),
+            result_receiver: Some(result_receiver),
+            result_sender,
         }
     }
 
-    /// Ajouter un serveur au pool
+    /// Ajouter un serveur au pool et créer son thread dédié
     pub fn add_server(&mut self, alias: &str) -> Result<()> {
         let (username, host) = Self::parse_server_alias(alias)?;
 
         let info = ConnectionInfo { username, host };
 
+        // Créer le thread dédié pour cette cible
+        let transfer_thread = self.create_transfer_thread(alias, &info)?;
+
         self.connection_info.insert(alias.to_string(), info);
-        log::debug!("Serveur ajouté au pool: {}", alias);
+        self.transfer_threads
+            .insert(alias.to_string(), transfer_thread);
+
+        log::debug!("Serveur ajouté au pool avec thread dédié: {}", alias);
         Ok(())
     }
 
-    /// Créer ou réutiliser une connexion SSH pour un serveur
-    pub fn get_or_create_connection(&self, server_alias: &str) -> Result<SshClient> {
-        let info = self
-            .connection_info
-            .get(server_alias)
-            .with_context(|| format!("Serveur '{}' non trouvé dans le pool", server_alias))?;
+    /// Créer un thread de transfert dédié pour un serveur
+    fn create_transfer_thread(
+        &self,
+        server_alias: &str,
+        info: &ConnectionInfo,
+    ) -> Result<TransferThread> {
+        let (sender, receiver) = mpsc::channel::<TransferMessage>();
+        let result_sender = self.result_sender.clone();
+        let validated_key = self.validated_key.clone();
+        let server_alias = server_alias.to_string();
+        let connection_info = info.clone();
 
-        // Dans cette implémentation, on crée toujours une nouvelle connexion pour éviter
-        // les problèmes de concurrence et garantir la stabilité
+        let handle = thread::spawn(move || {
+            let mut ssh_client: Option<SshClient> = None;
 
-        log::info!(
-            "🔌 Tentative de connexion SSH vers {}@{} (alias: {})",
-            info.username,
-            info.host,
-            server_alias
-        );
+            // Boucle principale du thread
+            while let Ok(message) = receiver.recv() {
+                match message {
+                    TransferMessage::StartTransfer(file_path, destination, server_name) => {
+                        // Créer une nouvelle connexion SSH si nécessaire
+                        if ssh_client.is_none() {
+                            match Self::create_ssh_client(&connection_info, &validated_key) {
+                                Ok(client) => {
+                                    log::info!(
+                                        "🔌 Connexion SSH créée pour thread {}",
+                                        server_name
+                                    );
+                                    ssh_client = Some(client);
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "❌ Impossible de créer la connexion SSH pour {}: {}",
+                                        server_name,
+                                        e
+                                    );
+                                    let _ = result_sender.send(TransferResult {
+                                        server_name: server_name.clone(),
+                                        result: Err(e),
+                                    });
+                                    continue;
+                                }
+                            }
+                        }
 
-        // Mettre à jour les stats
-        if let Ok(mut stats) = self.stats.lock() {
-            stats.connections_created += 1;
-        }
+                        // Effectuer le transfert
+                        if let Some(ref mut client) = ssh_client {
+                            let result = Self::perform_transfer(
+                                client,
+                                &file_path,
+                                &destination,
+                                &server_name,
+                            );
+                            let _ = result_sender.send(TransferResult {
+                                server_name: server_name.clone(),
+                                result,
+                            });
+                        }
+                    }
+                    TransferMessage::Stop => {
+                        // Fermer la connexion SSH si elle existe
+                        if let Some(mut client) = ssh_client.take() {
+                            let _ = client.disconnect();
+                            log::debug!("🔌 Connexion SSH fermée pour thread {}", server_alias);
+                        }
+                        break;
+                    }
+                }
+            }
 
-        let mut client = if let Some(ref validated_key) = self.validated_key {
-            // Utiliser la clé SSH validée
+            log::debug!("Thread de transfert terminé pour {}", server_alias);
+        });
+
+        Ok(TransferThread { handle, sender })
+    }
+
+    /// Créer un client SSH avec les paramètres donnés
+    fn create_ssh_client(
+        info: &ConnectionInfo,
+        validated_key: &Option<SshKeyWithPassphrase>,
+    ) -> Result<SshClient> {
+        let mut client = if let Some(key) = validated_key {
             log::info!(
-                "🔑 Utilisation de la clé validée: {} pour {}@{} (alias: {})",
-                validated_key.key.description(),
+                "🔑 Utilisation de la clé validée: {} pour {}@{}",
+                key.key.description(),
                 info.username,
-                info.host,
-                server_alias
+                info.host
             );
-            SshClient::new_with_validated_key(&info.host, &info.username, validated_key.clone())
+            SshClient::new_with_validated_key(&info.host, &info.username, key.clone())
         } else {
-            // Utiliser le comportement par défaut
             log::debug!(
-                "🔑 Aucune clé spécifiée, utilisation du comportement par défaut (ssh-agent + découverte automatique) pour {}@{}",
+                "🔑 Utilisation du comportement par défaut pour {}@{}",
                 info.username,
                 info.host
             );
             SshClient::new(&info.host, &info.username)
-        }
-        .with_context(|| format!("Impossible de créer le client SSH pour {}", server_alias))?;
+        }?;
 
-        // Tentative de connexion avec retry pour plus de robustesse et timeout réduit
+        // Connexion avec retry
         let mut attempts = 0;
-        let max_attempts = 2; // Réduire le nombre de tentatives pour éviter les blocages
-        let connection_timeout = std::time::Duration::from_secs(5); // Timeout réduit
+        let max_attempts = 2;
+        let connection_timeout = std::time::Duration::from_secs(10);
 
         loop {
             attempts += 1;
             log::debug!(
-                "Tentative de connexion {}/{} vers {} avec timeout {:?}",
+                "Tentative de connexion {}/{} vers {}@{}",
                 attempts,
                 max_attempts,
-                server_alias,
-                connection_timeout
+                info.username,
+                info.host
             );
 
             match client.connect_with_timeout(connection_timeout) {
                 Ok(()) => {
                     log::info!(
-                        "✅ Connexion SSH établie avec {} ({}@{}) - Tentative {}",
-                        server_alias,
+                        "✅ Connexion SSH établie avec {}@{} - Tentative {}",
                         info.username,
                         info.host,
                         attempts
@@ -152,24 +246,19 @@ impl SshConnectionPool {
                 }
                 Err(e) if attempts < max_attempts => {
                     log::warn!(
-                        "⚠️ Tentative {} échouée pour {} : {} - Retry dans 1s...",
+                        "⚠️ Tentative {} échouée pour {}@{}: {} - Retry...",
                         attempts,
-                        server_alias,
+                        info.username,
+                        info.host,
                         e
                     );
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     continue;
                 }
                 Err(e) => {
-                    log::error!(
-                        "❌ Impossible de se connecter à {} après {} tentatives: {}",
-                        server_alias,
-                        max_attempts,
-                        e
-                    );
                     return Err(e.context(format!(
-                        "Échec connexion SSH vers {} ({}@{}) après {} tentatives",
-                        server_alias, info.username, info.host, max_attempts
+                        "Échec connexion SSH vers {}@{} après {} tentatives",
+                        info.username, info.host, max_attempts
                     )));
                 }
             }
@@ -178,18 +267,70 @@ impl SshConnectionPool {
         Ok(client)
     }
 
-    /// Upload parallèle d'un fichier vers plusieurs serveurs avec callback
-    pub fn upload_file_parallel_with_callback(
+    /// Effectuer un transfert de fichier
+    fn perform_transfer(
+        client: &mut SshClient,
+        file_path: &str,
+        destination: &str,
+        server_name: &str,
+    ) -> Result<u64> {
+        let path = Path::new(file_path);
+        let full_destination = Self::build_full_destination_path(path, destination);
+
+        log::info!(
+            "🚀 Début transfert {} vers {} ({})",
+            file_path,
+            server_name,
+            full_destination
+        );
+
+        match client.upload_file(path, &full_destination) {
+            Ok(size) => {
+                log::info!("✅ Transfert terminé pour {}: {} octets", server_name, size);
+                Ok(size)
+            }
+            Err(e) => {
+                log::error!("❌ Échec transfert vers {}: {}", server_name, e);
+                Err(e)
+            }
+        }
+    }
+
+    /// Lancer un transfert vers un serveur spécifique via son thread dédié
+    pub fn start_transfer(
         &self,
+        server_alias: &str,
+        file_path: &str,
+        destination: &str,
+        server_name: &str,
+    ) -> Result<()> {
+        let transfer_thread = self
+            .transfer_threads
+            .get(server_alias)
+            .with_context(|| format!("Thread de transfert non trouvé pour {}", server_alias))?;
+
+        transfer_thread
+            .sender
+            .send(TransferMessage::StartTransfer(
+                file_path.to_string(),
+                destination.to_string(),
+                server_name.to_string(),
+            ))
+            .context("Impossible d'envoyer le message au thread de transfert")?;
+
+        Ok(())
+    }
+
+    /// Upload parallèle d'un fichier vers plusieurs serveurs avec callback (nouvelle implémentation thread-based)
+    pub fn upload_file_parallel_with_callback(
+        &mut self,
         file_path: &Path,
         servers: &[(String, &crate::config::HostEntry)],
         destination: &str,
         progress_callback: Option<ProgressCallback>,
     ) -> Result<()> {
-        use rayon::prelude::*;
-
         log::info!(
-            "Début upload parallèle: {} vers {} serveurs",
+            "Début upload parallèle avec threads dédiés: {} vers {} serveurs",
             file_path.display(),
             servers.len()
         );
@@ -199,41 +340,88 @@ impl SshConnectionPool {
             stats.active_transfers = servers.len();
         }
 
-        // Lancer les uploads en parallèle avec rayon et collecter tous les résultats
-        let results: Vec<Result<()>> = servers
-            .par_iter()
-            .map(|(name, host)| {
-                self.upload_to_single_server_with_callback(
-                    file_path,
-                    &host.alias,
-                    name,
-                    destination,
-                    progress_callback.clone(),
-                )
-            })
-            .collect();
+        let file_path_str = file_path.to_string_lossy().to_string();
+
+        // Lancer les transferts sur tous les threads dédiés
+        for (server_name, host_entry) in servers {
+            if let Some(ref callback) = progress_callback {
+                callback(server_name, 0, TransferStatus::Pending);
+            }
+
+            if let Err(e) =
+                self.start_transfer(&host_entry.alias, &file_path_str, destination, server_name)
+            {
+                log::error!(
+                    "❌ Impossible de lancer le transfert vers {}: {}",
+                    server_name,
+                    e
+                );
+                if let Some(ref callback) = progress_callback {
+                    callback(server_name, 0, TransferStatus::Failed(e.to_string()));
+                }
+            }
+        }
+
+        // Collecter les résultats depuis tous les threads
+        let mut results = Vec::new();
+        let receiver = self
+            .result_receiver
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Receiver déjà utilisé"))?;
+
+        for _ in 0..servers.len() {
+            match receiver.recv() {
+                Ok(result) => {
+                    if let Some(ref callback) = progress_callback {
+                        match &result.result {
+                            Ok(size) => {
+                                callback(&result.server_name, *size, TransferStatus::Completed);
+                            }
+                            Err(e) => {
+                                callback(
+                                    &result.server_name,
+                                    0,
+                                    TransferStatus::Failed(e.to_string()),
+                                );
+                            }
+                        }
+                    }
+                    results.push(result);
+                }
+                Err(e) => {
+                    log::error!("❌ Erreur lors de la réception des résultats: {}", e);
+                    break;
+                }
+            }
+        }
+
+        // Restaurer le receiver pour les prochains appels
+        self.result_receiver = Some(receiver);
+
+        // Analyser les résultats
+        let mut success_count = 0;
+        let mut failed_servers = Vec::new();
+
+        for result in results {
+            match result.result {
+                Ok(size) => {
+                    success_count += 1;
+                    log::info!(
+                        "✅ Upload réussi vers {} ({} octets)",
+                        result.server_name,
+                        size
+                    );
+                }
+                Err(e) => {
+                    failed_servers.push(result.server_name.clone());
+                    log::error!("❌ Upload échoué vers {} : {}", result.server_name, e);
+                }
+            }
+        }
 
         // Remettre à zéro les transferts actifs
         if let Ok(mut stats) = self.stats.lock() {
             stats.active_transfers = 0;
-        }
-
-        // Analyser les résultats et gérer les erreurs gracieusement
-        let mut success_count = 0;
-        let mut failed_servers = Vec::new();
-
-        for (i, result) in results.iter().enumerate() {
-            let (server_name, _) = &servers[i];
-            match result {
-                Ok(()) => {
-                    success_count += 1;
-                    log::info!("✅ Upload réussi vers {}", server_name);
-                }
-                Err(e) => {
-                    failed_servers.push(server_name.clone());
-                    log::error!("❌ Upload échoué vers {} : {}", server_name, e);
-                }
-            }
         }
 
         if success_count > 0 {
@@ -253,103 +441,33 @@ impl SshConnectionPool {
         }
     }
 
-    /// Upload vers un serveur unique avec callback de progression
-    fn upload_to_single_server_with_callback(
-        &self,
-        file_path: &Path,
-        server_alias: &str,
-        server_name: &str,
-        destination: &str,
-        progress_callback: Option<ProgressCallback>,
-    ) -> Result<()> {
-        // Obtenir la taille du fichier en premier
-        let _file_size = match std::fs::metadata(file_path) {
-            Ok(metadata) => metadata.len(),
-            Err(e) => {
-                if let Some(ref callback) = progress_callback {
-                    callback(
-                        server_name,
-                        0,
-                        TransferStatus::Failed(format!("Impossible de lire le fichier: {}", e)),
-                    );
-                }
-                return Err(anyhow::anyhow!(
-                    "Impossible de lire les métadonnées du fichier: {}",
+    /// Arrêter tous les threads de transfert
+    pub fn stop_all_threads(&mut self) -> Result<()> {
+        log::info!("Arrêt de tous les threads de transfert...");
+
+        // Envoyer le signal d'arrêt à tous les threads
+        for (server_alias, transfer_thread) in self.transfer_threads.drain() {
+            if let Err(e) = transfer_thread.sender.send(TransferMessage::Stop) {
+                log::warn!(
+                    "Impossible d'envoyer le signal d'arrêt à {}: {}",
+                    server_alias,
                     e
-                ));
+                );
             }
-        };
 
-        // Notifier le début de la connexion avec la taille du fichier
-        if let Some(ref callback) = progress_callback {
-            callback(server_name, 0, TransferStatus::Connecting);
+            // Attendre que le thread se termine
+            if let Err(e) = transfer_thread.handle.join() {
+                log::warn!(
+                    "Erreur lors de l'attente du thread {}: {:?}",
+                    server_alias,
+                    e
+                );
+            } else {
+                log::debug!("Thread {} terminé avec succès", server_alias);
+            }
         }
 
-        // Construire le chemin de destination complet
-        let full_destination = Self::build_full_destination_path(file_path, destination);
-        log::debug!("Chemin destination complet: {}", full_destination);
-
-        // Créer une nouvelle connexion pour ce transfert avec retry
-        let mut client = match self.get_or_create_connection(server_alias) {
-            Ok(client) => client,
-            Err(e) => {
-                if let Some(ref callback) = progress_callback {
-                    callback(
-                        server_name,
-                        0,
-                        TransferStatus::Failed(format!("Connexion échouée: {}", e)),
-                    );
-                }
-                return Err(e.context(format!(
-                    "Impossible d'obtenir connexion pour {}",
-                    server_name
-                )));
-            }
-        };
-
-        // Notifier le début du transfert avec taille du fichier
-        if let Some(ref callback) = progress_callback {
-            callback(server_name, 0, TransferStatus::Transferring);
-        }
-
-        // Effectuer le transfert avec gestion d'erreur complète
-        let upload_result_size = match client.upload_file(file_path, &full_destination) {
-            Ok(size) => {
-                log::info!("✅ Upload réussi pour {} : {} octets", server_name, size);
-                size
-            }
-            Err(e) => {
-                let error_msg = format!("Transfert échoué: {}", e);
-                log::error!("❌ {} - {}", server_name, error_msg);
-
-                if let Some(ref callback) = progress_callback {
-                    callback(server_name, 0, TransferStatus::Failed(error_msg.clone()));
-                }
-                // Tenter de fermer proprement la connexion même en cas d'erreur
-                let _ = client.disconnect();
-                return Err(e.context(format!(
-                    "Échec upload vers {} - Détails: {}",
-                    server_name, error_msg
-                )));
-            }
-        };
-
-        // Fermer la connexion immédiatement après le transfert
-        if let Err(e) = client.disconnect() {
-            log::warn!("Avertissement fermeture connexion {}: {}", server_name, e);
-            // Ne pas faire échouer le transfert pour un problème de fermeture
-        }
-
-        // Notifier la fin du transfert avec la taille réelle uploadée
-        if let Some(ref callback) = progress_callback {
-            callback(server_name, upload_result_size, TransferStatus::Completed);
-        }
-
-        log::info!(
-            "✅ {} - {} octets uploadés",
-            server_name,
-            upload_result_size
-        );
+        log::info!("Tous les threads de transfert ont été arrêtés");
         Ok(())
     }
 
@@ -394,17 +512,8 @@ impl SshConnectionPool {
 
     /// Nettoyer toutes les connexions actives du pool
     pub fn cleanup_connections(&mut self) -> Result<()> {
-        if let Ok(mut connections) = self.active_connections.lock() {
-            for (alias, mut connection) in connections.drain() {
-                if let Err(e) = connection.disconnect() {
-                    log::warn!("Erreur fermeture connexion {}: {}", alias, e);
-                }
-            }
-            log::info!(
-                "Pool SSH nettoyé - {} connexions fermées",
-                connections.len()
-            );
-        }
+        self.stop_all_threads()?;
+        log::info!("Pool SSH nettoyé - tous les threads arrêtés");
         Ok(())
     }
 
@@ -420,5 +529,12 @@ impl SshConnectionPool {
         } else {
             format!("{}/{}", destination, file_name)
         }
+    }
+}
+
+impl Drop for SshConnectionPool {
+    fn drop(&mut self) {
+        log::debug!("Nettoyage automatique du pool SSH lors de la destruction");
+        let _ = self.stop_all_threads();
     }
 }
