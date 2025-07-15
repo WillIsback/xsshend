@@ -31,6 +31,166 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Fonction pour obtenir la version précédente
+get_previous_version() {
+    git describe --tags --abbrev=0 2>/dev/null || echo ""
+}
+
+# Fonction pour catégoriser les commits
+categorize_commits() {
+    local since_tag="$1"
+    local range_arg=""
+    
+    if [[ -n "$since_tag" ]]; then
+        range_arg="${since_tag}..HEAD"
+    else
+        range_arg="HEAD"
+    fi
+    
+    # Récupérer les commits depuis la dernière version
+    git log --oneline --no-merges "$range_arg" 2>/dev/null || echo ""
+}
+
+# Fonction pour générer le changelog depuis les commits
+generate_changelog() {
+    local since_tag="$1"
+    local version="$2"
+    
+    log_info "Génération du changelog depuis ${since_tag:-"le début"}..."
+    
+    local commits
+    commits=$(categorize_commits "$since_tag")
+    
+    if [[ -z "$commits" ]]; then
+        echo "Aucun commit trouvé depuis ${since_tag:-"le début"}"
+        return
+    fi
+    
+    local features=()
+    local fixes=()
+    local improvements=()
+    local others=()
+    
+    # Analyser chaque commit
+    while IFS= read -r commit; do
+        if [[ -z "$commit" ]]; then continue; fi
+        
+        local hash=$(echo "$commit" | cut -d' ' -f1)
+        local message=$(echo "$commit" | cut -d' ' -f2-)
+        
+        # Catégoriser selon les conventional commits
+        if [[ "$message" =~ ^feat(\(.+\))?: ]]; then
+            features+=("- **${message}** ($hash)")
+        elif [[ "$message" =~ ^fix(\(.+\))?: ]]; then
+            fixes+=("- **${message}** ($hash)")
+        elif [[ "$message" =~ ^(refactor|perf|style|docs|test)(\(.+\))?: ]]; then
+            improvements+=("- **${message}** ($hash)")
+        elif [[ "$message" =~ ^chore(\(.+\))?: && ! "$message" =~ "bump version" ]]; then
+            others+=("- **${message}** ($hash)")
+        else
+            # Classer par mots-clés dans le message
+            if [[ "$message" =~ (add|implement|nouveau|nouvelle) ]]; then
+                features+=("- **${message}** ($hash)")
+            elif [[ "$message" =~ (fix|correct|resolve|résoudre) ]]; then
+                fixes+=("- **${message}** ($hash)")
+            elif [[ "$message" =~ (improve|enhance|optimize|update|refactor) ]]; then
+                improvements+=("- **${message}** ($hash)")
+            else
+                others+=("- **${message}** ($hash)")
+            fi
+        fi
+    done <<< "$commits"
+    
+    # Formater le changelog
+    local changelog=""
+    
+    if [[ ${#features[@]} -gt 0 ]]; then
+        changelog+="\n### ✨ Nouvelles fonctionnalités\n"
+        printf '%s\n' "${features[@]}" | head -10 >> /tmp/changelog_features
+        changelog+="$(cat /tmp/changelog_features)"
+        rm -f /tmp/changelog_features
+    fi
+    
+    if [[ ${#fixes[@]} -gt 0 ]]; then
+        changelog+="\n\n### 🐛 Corrections\n"
+        printf '%s\n' "${fixes[@]}" | head -10 >> /tmp/changelog_fixes
+        changelog+="$(cat /tmp/changelog_fixes)"
+        rm -f /tmp/changelog_fixes
+    fi
+    
+    if [[ ${#improvements[@]} -gt 0 ]]; then
+        changelog+="\n\n### 📈 Améliorations\n"
+        printf '%s\n' "${improvements[@]}" | head -10 >> /tmp/changelog_improvements
+        changelog+="$(cat /tmp/changelog_improvements)"
+        rm -f /tmp/changelog_improvements
+    fi
+    
+    if [[ ${#others[@]} -gt 0 ]]; then
+        changelog+="\n\n### 🔧 Autres changements\n"
+        printf '%s\n' "${others[@]}" | head -5 >> /tmp/changelog_others
+        changelog+="$(cat /tmp/changelog_others)"
+        rm -f /tmp/changelog_others
+    fi
+    
+    echo -e "$changelog"
+}
+
+# Fonction pour formater le message de tag
+format_tag_message() {
+    local version="$1"
+    local custom_message="$2"
+    
+    if [[ -n "$custom_message" ]]; then
+        echo "$custom_message"
+        return
+    fi
+    
+    local previous_version
+    previous_version=$(get_previous_version)
+    
+    local tag_message="🚀 Release $version"
+    
+    local changelog
+    changelog=$(generate_changelog "$previous_version" "$version")
+    
+    if [[ -n "$changelog" ]]; then
+        tag_message+="\n\n$changelog"
+    fi
+    
+    # Ajouter des informations supplémentaires
+    tag_message+="\n\n### 📋 Informations\n"
+    tag_message+="- Version précédente: ${previous_version:-"Première version"}\n"
+    tag_message+="- Branche: $(git branch --show-current)\n"
+    tag_message+="- Date: $(date '+%Y-%m-%d %H:%M:%S')\n"
+    
+    # Ajouter liens utiles
+    local repo_url
+    repo_url=$(git config --get remote.origin.url | sed 's|.*github.com[:/]\([^/]*\)/\([^/]*\)\.git|\1/\2|')
+    if [[ -n "$repo_url" ]]; then
+        tag_message+="\n### 🔗 Liens\n"
+        tag_message+="- [📋 Changelog complet](https://github.com/$repo_url/blob/main/CHANGELOG.md)\n"
+        tag_message+="- [🐛 Signaler un bug](https://github.com/$repo_url/issues)\n"
+        if [[ -n "$previous_version" ]]; then
+            tag_message+="- [📊 Comparaison](https://github.com/$repo_url/compare/$previous_version...$version)\n"
+        fi
+    fi
+    
+    echo -e "$tag_message"
+}
+
+# Fonction pour afficher un aperçu du message de release
+preview_release_message() {
+    local version="$1"
+    local custom_message="$2"
+    
+    echo
+    log_info "Aperçu du message de release pour $version:"
+    echo "=============================================="
+    format_tag_message "$version" "$custom_message"
+    echo "=============================================="
+    echo
+}
+
 # Fonction d'aide
 show_help() {
     cat << EOF
@@ -45,6 +205,9 @@ Options:
   -h, --help       Afficher cette aide
   -d, --dry-run    Simuler sans faire de changements
   -p, --push       Pousser automatiquement le tag
+  -m, --message    Message personnalisé pour la release
+  --changelog-only Générer seulement le changelog sans créer la release
+  --preview        Afficher un aperçu du message de release
   --no-test        Ignorer les tests
   --no-fmt         Ignorer la vérification du formatage avec cargo fmt
   --no-clippy      Ignorer la vérification avec cargo clippy
@@ -54,6 +217,9 @@ Exemples:
   $0 0.2.3                    # Préparer la version 0.2.3
   $0 0.2.3 --dry-run          # Simuler la préparation
   $0 0.2.3 --push             # Préparer et pousser le tag
+  $0 0.2.3 --preview          # Aperçu du message de release
+  $0 0.2.3 --changelog-only   # Générer seulement le changelog
+  $0 0.2.3 -m "Release custom" # Message personnalisé
 EOF
 }
 
@@ -80,6 +246,9 @@ RUN_TESTS=true
 RUN_FMT=true
 RUN_CLIPPY=true
 FORCE=false
+CUSTOM_MESSAGE=""
+CHANGELOG_ONLY=false
+PREVIEW_MESSAGE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -92,6 +261,16 @@ while [[ $# -gt 0 ]]; do
             ;;
         -p|--push)
             PUSH_TAG=true
+            ;;
+        -m|--message)
+            CUSTOM_MESSAGE="$2"
+            shift
+            ;;
+        --changelog-only)
+            CHANGELOG_ONLY=true
+            ;;
+        --preview)
+            PREVIEW_MESSAGE=true
             ;;
         --no-test)
             RUN_TESTS=false
@@ -121,6 +300,20 @@ if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.-]+)?$ ]]; then
 fi
 
 TAG="v$VERSION"
+
+# Gestion des modes spéciaux
+if [[ "$PREVIEW_MESSAGE" == "true" ]]; then
+    preview_release_message "$VERSION" "$CUSTOM_MESSAGE"
+    exit 0
+fi
+
+if [[ "$CHANGELOG_ONLY" == "true" ]]; then
+    log_info "Génération du changelog uniquement pour la version $VERSION"
+    echo
+    previous_version=$(get_previous_version)
+    generate_changelog "$previous_version" "$VERSION"
+    exit 0
+fi
 
 log_info "Préparation de la release $TAG"
 if [[ "$DRY_RUN" == "true" ]]; then
@@ -291,10 +484,19 @@ fi
 # Créer le tag
 log_info "Création du tag $TAG..."
 if [[ "$DRY_RUN" == "false" ]]; then
-    git tag -a "$TAG" -m "Release $TAG"
-    log_success "Tag $TAG créé"
+    # Générer le message de tag formaté
+    tag_message=$(format_tag_message "$VERSION" "$CUSTOM_MESSAGE")
+    
+    # Créer le tag avec le message détaillé
+    git tag -a "$TAG" -m "$tag_message"
+    log_success "Tag $TAG créé avec un message détaillé"
 else
     log_info "Simulation: création du tag $TAG"
+    if [[ "$CUSTOM_MESSAGE" ]]; then
+        log_info "Message personnalisé: $CUSTOM_MESSAGE"
+    else
+        log_info "Message automatique basé sur les commits"
+    fi
 fi
 
 # Pousser le tag si demandé
