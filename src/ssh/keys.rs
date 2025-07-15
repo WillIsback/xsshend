@@ -333,7 +333,10 @@ impl SshKeyManager {
     /// Demande et valide la passphrase pour une clé donnée
     pub fn prompt_and_validate_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
         // D'abord tester si la clé fonctionne sans passphrase
-        log::debug!("Test de validation sans passphrase pour {}", key.description());
+        log::debug!(
+            "Test de validation sans passphrase pour {}",
+            key.description()
+        );
         match self.validate_key_passphrase(key, None) {
             Ok(true) => {
                 println!("✅ Clé {} validée (sans passphrase)", key.description());
@@ -345,7 +348,10 @@ impl SshKeyManager {
             }
             Err(e) => {
                 log::warn!("Erreur lors de la validation sans passphrase: {}", e);
-                println!("🔐 La clé {} pourrait nécessiter une passphrase", key.description());
+                println!(
+                    "🔐 La clé {} pourrait nécessiter une passphrase",
+                    key.description()
+                );
             }
         }
 
@@ -354,7 +360,10 @@ impl SshKeyManager {
             let passphrase = self.prompt_for_passphrase(key)?;
 
             if let Some(ref pass) = passphrase {
-                log::debug!("Test de validation avec passphrase pour {}", key.description());
+                log::debug!(
+                    "Test de validation avec passphrase pour {}",
+                    key.description()
+                );
                 match self.validate_key_passphrase(key, Some(pass)) {
                     Ok(true) => {
                         println!("✅ Passphrase validée pour {}", key.description());
@@ -392,12 +401,19 @@ impl SshKeyManager {
                 match session.userauth_pubkey_memory("test", None, &private_key_content, passphrase)
                 {
                     Ok(_) => {
-                        log::debug!("Clé validée avec succès avec passphrase: {}", passphrase.is_some());
+                        log::debug!(
+                            "Clé validée avec succès avec passphrase: {}",
+                            passphrase.is_some()
+                        );
                         Ok(true) // Clé chargée avec succès
                     }
                     Err(e) => {
                         let error_msg = e.message().to_lowercase();
-                        log::debug!("Erreur validation clé: {} (passphrase: {})", error_msg, passphrase.is_some());
+                        log::debug!(
+                            "Erreur validation clé: {} (passphrase: {})",
+                            error_msg,
+                            passphrase.is_some()
+                        );
 
                         // Analyser l'erreur pour déterminer si c'est un problème de passphrase
                         if error_msg.contains("unable to parse")
@@ -411,7 +427,10 @@ impl SshKeyManager {
                         } else {
                             // Autres erreurs peuvent être normales (pas de serveur SSH pour se connecter)
                             // On considère que la clé est valide si l'erreur n'est pas liée au déchiffrement
-                            log::debug!("Clé considérée comme valide malgré l'erreur: {}", error_msg);
+                            log::debug!(
+                                "Clé considérée comme valide malgré l'erreur: {}",
+                                error_msg
+                            );
                             Ok(true)
                         }
                     }
