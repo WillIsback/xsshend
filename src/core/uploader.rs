@@ -56,17 +56,37 @@ impl Uploader {
         );
         log::info!("📂 Destination: {}", destination);
 
+        // Affichage CLI pour informer l'utilisateur
+        println!(
+            "🚀 Début du téléversement: {} fichier(s) vers {} serveur(s)",
+            files.len(),
+            hosts.len()
+        );
+        println!("📂 Destination: {}", destination);
+
+        // Afficher la liste des serveurs ciblés
+        println!("🎯 Serveurs ciblés:");
+        for (host_name, host_entry) in hosts {
+            println!(
+                "   • {} → {} ({})",
+                host_name, host_entry.alias, host_entry.env
+            );
+        }
+
         // Téléverser chaque fichier en parallèle avec gestion d'erreur gracieuse
         let mut overall_success = true;
         let mut failed_files = Vec::new();
 
         for file in files {
+            println!("📤 Téléversement de {} en cours...", file.display());
             match self.upload_single_file_parallel_with_callback(file, hosts, destination, None) {
                 Ok(_) => {
                     log::info!("✅ Fichier {} téléversé avec succès", file.display());
+                    println!("✅ Fichier {} téléversé avec succès", file.display());
                 }
                 Err(e) => {
                     log::error!("❌ Échec téléversement de {} : {}", file.display(), e);
+                    println!("❌ Échec téléversement de {} : {}", file.display(), e);
                     failed_files.push(file.display().to_string());
                     overall_success = false;
                     // Continue avec les autres fichiers au lieu de s'arrêter
@@ -82,6 +102,10 @@ impl Uploader {
             reused,
             active
         );
+        println!(
+            "📊 Statistiques connexions - Créées: {}, Réutilisées: {}, Actives: {}",
+            created, reused, active
+        );
 
         // Nettoyer les connexions à la fin
         self.ssh_pool.cleanup_connections()?;
@@ -89,14 +113,25 @@ impl Uploader {
         // Résumé final
         if overall_success {
             log::info!("✅ Téléversement terminé avec succès!");
+            println!("✅ Téléversement terminé avec succès!");
         } else {
             log::warn!(
                 "⚠️ Téléversement terminé avec {} fichier(s) échoué(s): {}",
                 failed_files.len(),
                 failed_files.join(", ")
             );
+            println!(
+                "⚠️ Téléversement terminé avec {} fichier(s) échoué(s): {}",
+                failed_files.len(),
+                failed_files.join(", ")
+            );
             if files.len() - failed_files.len() > 0 {
                 log::info!(
+                    "📊 {} fichier(s) sur {} réussi(s)",
+                    files.len() - failed_files.len(),
+                    files.len()
+                );
+                println!(
                     "📊 {} fichier(s) sur {} réussi(s)",
                     files.len() - failed_files.len(),
                     files.len()
@@ -117,6 +152,12 @@ impl Uploader {
         let file_size = Validator::get_file_size(file)?;
 
         log::info!(
+            "📤 Téléversement de {} vers {} ({})",
+            file.display(),
+            destination,
+            Validator::format_file_size(file_size)
+        );
+        println!(
             "📤 Téléversement de {} vers {} ({})",
             file.display(),
             destination,
@@ -173,8 +214,10 @@ impl Uploader {
         destination: &str,
     ) -> Result<()> {
         log::info!("🔍 Mode dry-run - Simulation du téléversement");
+        println!("🔍 Mode dry-run - Simulation du téléversement");
 
         // Validation des fichiers
+        println!("📁 Fichiers à téléverser:");
         for file in files {
             Validator::validate_file(file)
                 .with_context(|| format!("Validation échouée pour {}", file.display()))?;
@@ -185,15 +228,24 @@ impl Uploader {
                 file.display(),
                 Validator::format_file_size(file_size)
             );
+            println!(
+                "   • {} ({})",
+                file.display(),
+                Validator::format_file_size(file_size)
+            );
         }
 
         log::info!("🎯 Serveurs cibles:");
+        println!("🎯 Serveurs cibles:");
         for (name, host_entry) in hosts {
             log::info!("   🖥️  {} → {}", name, host_entry.alias);
+            println!("   • {} → {} ({})", name, host_entry.alias, host_entry.env);
         }
 
         log::info!("📂 Destination: {}", destination);
+        println!("📂 Destination: {}", destination);
         log::info!("✅ Simulation terminée - Aucun fichier réellement transféré");
+        println!("✅ Simulation terminée - Aucun fichier réellement transféré");
 
         Ok(())
     }
