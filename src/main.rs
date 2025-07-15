@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     // Ne pas initialiser de logger ici - sera fait selon le mode
 
     let app = Command::new("xsshend")
-        .version("0.2.10")
+        .version("0.2.11")
         .about("Outil Rust de téléversement multi-SSH avec interface TUI")
         // Arguments globaux pour mode interactif direct
         .arg(
