@@ -416,39 +416,37 @@ impl SshKeyManager {
     fn prompt_for_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
         use std::io::{self, Write};
 
-        // Déterminer si nous sommes en mode TUI ou CLI
-        if atty::is(atty::Stream::Stdin) && atty::is(atty::Stream::Stdout) {
-            // Mode interactif - utiliser rpassword pour masquer la saisie
-            print!(
-                "🔐 Entrez la passphrase pour {} (ou appuyez sur Entrée pour annuler): ",
-                key.description()
-            );
-            io::stdout().flush()?;
+        // Toujours utiliser rpassword pour masquer la saisie de passphrase
+        print!(
+            "🔐 Entrez la passphrase pour {} (ou appuyez sur Entrée pour annuler): ",
+            key.description()
+        );
+        io::stdout().flush()?;
 
-            match rpassword::read_password() {
-                Ok(passphrase) => {
-                    if passphrase.is_empty() {
-                        println!("⚠️ Passphrase annulée");
-                        Ok(None)
-                    } else {
-                        Ok(Some(passphrase))
-                    }
+        match rpassword::read_password() {
+            Ok(passphrase) => {
+                if passphrase.is_empty() {
+                    println!("⚠️ Passphrase annulée");
+                    Ok(None)
+                } else {
+                    Ok(Some(passphrase))
                 }
-                Err(e) => Err(anyhow!("Erreur lors de la saisie de passphrase: {}", e)),
             }
-        } else {
-            // Mode non-interactif - utiliser stdin normal
-            print!("🔐 Entrez la passphrase pour {} : ", key.description());
-            io::stdout().flush()?;
+            Err(e) => {
+                // Fallback vers stdin normal si rpassword échoue
+                eprintln!("⚠️ Impossible d'utiliser la saisie masquée: {}", e);
+                print!("🔐 Entrez la passphrase pour {} : ", key.description());
+                io::stdout().flush()?;
 
-            let mut passphrase = String::new();
-            io::stdin().read_line(&mut passphrase)?;
-            let passphrase = passphrase.trim().to_string();
+                let mut passphrase = String::new();
+                io::stdin().read_line(&mut passphrase)?;
+                let passphrase = passphrase.trim().to_string();
 
-            if passphrase.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(passphrase))
+                if passphrase.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(passphrase))
+                }
             }
         }
     }
