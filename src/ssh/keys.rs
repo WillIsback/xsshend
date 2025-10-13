@@ -1,10 +1,10 @@
 use anyhow::{Result, anyhow};
-use dialoguer::{Select, theme::ColorfulTheme};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Représente une clé SSH avec sa passphrase validée
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct SshKeyWithPassphrase {
     pub key: SshKey,
     pub passphrase: Option<String>,
@@ -231,23 +231,20 @@ impl SshKeyManager {
                     }
 
                     // Essayer de lire le fichier pour voir si c'est une clé privée
-                    if let Ok(content) = fs::read_to_string(&path) {
-                        if content.contains("PRIVATE KEY") {
-                            match SshKey::new(filename.to_string(), path.clone()) {
-                                Ok(key) => {
-                                    log::debug!(
-                                        "🔑 Clé additionnelle trouvée: {}",
-                                        key.description()
-                                    );
-                                    discovered_keys.push(key);
-                                }
-                                Err(e) => {
-                                    log::warn!(
-                                        "⚠️ Erreur lors de l'analyse de la clé {}: {}",
-                                        filename,
-                                        e
-                                    );
-                                }
+                    if let Ok(content) = fs::read_to_string(&path)
+                        && content.contains("PRIVATE KEY")
+                    {
+                        match SshKey::new(filename.to_string(), path.clone()) {
+                            Ok(key) => {
+                                log::debug!("🔑 Clé additionnelle trouvée: {}", key.description());
+                                discovered_keys.push(key);
+                            }
+                            Err(e) => {
+                                log::warn!(
+                                    "⚠️ Erreur lors de l'analyse de la clé {}: {}",
+                                    filename,
+                                    e
+                                );
                             }
                         }
                     }
@@ -261,14 +258,15 @@ impl SshKeyManager {
     }
 
     /// Retourne toutes les clés disponibles
+    #[allow(dead_code)]
     pub fn get_keys(&self) -> &[SshKey] {
         &self.keys
     }
 
-    /// Permet à l'utilisateur de sélectionner une clé interactivement
-    pub fn select_key_interactive(&self) -> Result<Option<&SshKey>> {
+    /// Sélectionne automatiquement la meilleure clé disponible (non-interactive)
+    pub fn select_key_auto(&self) -> Option<&SshKey> {
         if self.keys.is_empty() {
-            return Err(anyhow!("Aucune clé SSH trouvée"));
+            return None;
         }
 
         if self.keys.len() == 1 {
@@ -276,19 +274,10 @@ impl SshKeyManager {
                 "🔑 Une seule clé disponible: {}",
                 self.keys[0].description()
             );
-            return Ok(Some(&self.keys[0]));
+            return Some(&self.keys[0]);
         }
 
-        let options: Vec<String> = self.keys.iter().map(|key| key.description()).collect();
-
-        println!("🔑 Plusieurs clés SSH disponibles:");
-        let selection = Select::with_theme(&ColorfulTheme::default())
-            .with_prompt("Sélectionnez la clé SSH à utiliser")
-            .items(&options)
-            .default(0)
-            .interact()?;
-
-        Ok(Some(&self.keys[selection]))
+        self.select_best_key()
     }
 
     /// Sélectionne automatiquement la "meilleure" clé disponible
@@ -317,228 +306,20 @@ impl SshKeyManager {
         Some(best_key)
     }
 
-    /// Sélectionne une clé interactivement avec validation de passphrase
-    pub fn select_key_interactive_with_passphrase(&self) -> Result<Option<SshKeyWithPassphrase>> {
-        if let Some(key) = self.select_key_interactive()? {
-            let passphrase = self.prompt_and_validate_passphrase(key)?;
-            Ok(Some(SshKeyWithPassphrase {
-                key: key.clone(),
-                passphrase,
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Demande et valide la passphrase pour une clé donnée
-    pub fn prompt_and_validate_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
-        // D'abord tester si la clé fonctionne sans passphrase
-        log::debug!(
-            "Test de validation sans passphrase pour {}",
-            key.description()
-        );
-        match self.validate_key_passphrase(key, None) {
-            Ok(true) => {
-                println!("✅ Clé {} validée (sans passphrase)", key.description());
-                return Ok(None);
-            }
-            Ok(false) => {
-                // La clé nécessite une passphrase
-                println!("🔐 La clé {} requiert une passphrase", key.description());
-            }
-            Err(e) => {
-                log::warn!("Erreur lors de la validation sans passphrase: {}", e);
-                println!(
-                    "🔐 La clé {} pourrait nécessiter une passphrase",
-                    key.description()
-                );
-            }
-        }
-
-        // Demander la passphrase
-        loop {
-            let passphrase = self.prompt_for_passphrase(key)?;
-
-            if let Some(ref pass) = passphrase {
-                log::debug!(
-                    "Test de validation avec passphrase pour {}",
-                    key.description()
-                );
-                match self.validate_key_passphrase(key, Some(pass)) {
-                    Ok(true) => {
-                        println!("✅ Passphrase validée pour {}", key.description());
-                        return Ok(passphrase);
-                    }
-                    Ok(false) => {
-                        println!("❌ Passphrase incorrecte, veuillez réessayer");
-                        continue;
-                    }
-                    Err(e) => {
-                        log::warn!("Erreur lors de la validation avec passphrase: {}", e);
-                        println!("❌ Erreur de validation, veuillez réessayer");
-                        continue;
-                    }
-                }
-            } else {
-                println!("⚠️ Passphrase annulée");
-                return Ok(None); // Utilisateur a annulé
-            }
-        }
-    }
-
-    /// Valide qu'une clé peut être chargée avec la passphrase donnée
-    pub fn validate_key_passphrase(&self, key: &SshKey, passphrase: Option<&str>) -> Result<bool> {
-        use std::fs;
-
-        // Lire la clé privée
-        let private_key_content = fs::read_to_string(&key.private_key_path)
-            .map_err(|e| anyhow!("Impossible de lire la clé privée: {}", e))?;
-
-        // Essayer de charger la clé avec ssh2 directement, sans présupposer si elle est chiffrée
-        match ssh2::Session::new() {
-            Ok(session) => {
-                // Créer une connexion fictive pour tester la clé
-                match session.userauth_pubkey_memory("test", None, &private_key_content, passphrase)
-                {
-                    Ok(_) => {
-                        log::debug!(
-                            "Clé validée avec succès avec passphrase: {}",
-                            passphrase.is_some()
-                        );
-                        Ok(true) // Clé chargée avec succès
-                    }
-                    Err(e) => {
-                        let error_msg = e.message().to_lowercase();
-                        log::debug!(
-                            "Erreur validation clé: {} (passphrase: {})",
-                            error_msg,
-                            passphrase.is_some()
-                        );
-
-                        // Analyser l'erreur pour déterminer si c'est un problème de passphrase
-                        if error_msg.contains("unable to parse")
-                            || error_msg.contains("decrypt")
-                            || error_msg.contains("invalid format")
-                            || error_msg.contains("bad decrypt")
-                            || error_msg.contains("wrong passphrase")
-                            || error_msg.contains("decrypt failed")
-                        {
-                            Ok(false) // Passphrase incorrecte ou manquante
-                        } else {
-                            // Autres erreurs peuvent être normales (pas de serveur SSH pour se connecter)
-                            // On considère que la clé est valide si l'erreur n'est pas liée au déchiffrement
-                            log::debug!(
-                                "Clé considérée comme valide malgré l'erreur: {}",
-                                error_msg
-                            );
-                            Ok(true)
-                        }
-                    }
-                }
-            }
-            Err(e) => Err(anyhow!(
-                "Impossible de créer une session SSH pour validation: {}",
-                e
-            )),
-        }
-    }
-
-    /// Demande la passphrase à l'utilisateur
-    fn prompt_for_passphrase(&self, key: &SshKey) -> Result<Option<String>> {
-        use std::io::{self, Write};
-
-        // Toujours utiliser rpassword pour masquer la saisie de passphrase
-        print!(
-            "🔐 Entrez la passphrase pour {} (ou appuyez sur Entrée pour annuler): ",
-            key.description()
-        );
-        io::stdout().flush()?;
-
-        match rpassword::read_password() {
-            Ok(passphrase) => {
-                if passphrase.is_empty() {
-                    println!("⚠️ Passphrase annulée");
-                    Ok(None)
-                } else {
-                    Ok(Some(passphrase))
-                }
-            }
-            Err(e) => {
-                // Fallback vers stdin normal si rpassword échoue
-                eprintln!("⚠️ Impossible d'utiliser la saisie masquée: {}", e);
-                print!("🔐 Entrez la passphrase pour {} : ", key.description());
-                io::stdout().flush()?;
-
-                let mut passphrase = String::new();
-                io::stdin().read_line(&mut passphrase)?;
-                let passphrase = passphrase.trim().to_string();
-
-                if passphrase.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(passphrase))
-                }
-            }
+    /// Crée une clé validée avec passphrase si nécessaire (simplifié)
+    #[allow(dead_code)]
+    pub fn create_validated_key(&self, key: &SshKey) -> SshKeyWithPassphrase {
+        // Version simplifiée : on laisse SSH gérer les passphrases via ssh-agent
+        SshKeyWithPassphrase {
+            key: key.clone(),
+            passphrase: None, // SSH agent gérera automatiquement
         }
     }
 
     /// Trouve une clé par nom
+    #[allow(dead_code)]
     pub fn get_key_by_name(&self, name: &str) -> Option<&SshKey> {
         self.keys.iter().find(|key| key.name == name)
-    }
-
-    /// Vérifie si ssh-agent est en cours d'exécution
-    #[allow(dead_code)]
-    pub fn is_ssh_agent_running(&self) -> bool {
-        std::env::var("SSH_AUTH_SOCK").is_ok()
-    }
-
-    /// Liste les clés chargées dans ssh-agent
-    #[allow(dead_code)]
-    pub fn list_agent_keys(&self) -> Result<Vec<String>> {
-        if !self.is_ssh_agent_running() {
-            return Err(anyhow!("ssh-agent n'est pas en cours d'exécution"));
-        }
-
-        let output = std::process::Command::new("ssh-add").arg("-l").output()?;
-
-        if !output.status.success() {
-            return Err(anyhow!("Erreur lors de la liste des clés ssh-agent"));
-        }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let keys: Vec<String> = stdout
-            .lines()
-            .filter(|line| !line.is_empty())
-            .map(|line| line.to_string())
-            .collect();
-
-        Ok(keys)
-    }
-
-    /// Ajoute une clé à ssh-agent
-    #[allow(dead_code)]
-    pub fn add_key_to_agent(&self, key: &SshKey) -> Result<()> {
-        if !self.is_ssh_agent_running() {
-            return Err(anyhow!("ssh-agent n'est pas en cours d'exécution"));
-        }
-
-        log::info!("🔑 Ajout de la clé {} à ssh-agent", key.name);
-
-        let output = std::process::Command::new("ssh-add")
-            .arg(&key.private_key_path)
-            .output()?;
-
-        if output.status.success() {
-            log::info!("✅ Clé {} ajoutée à ssh-agent", key.name);
-            Ok(())
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            Err(anyhow!(
-                "Erreur lors de l'ajout de la clé à ssh-agent: {}",
-                stderr
-            ))
-        }
     }
 }
 

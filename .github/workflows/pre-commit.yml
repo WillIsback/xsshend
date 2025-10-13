@@ -1,0 +1,173 @@
+name: Pre-commit Quality Gate
+
+# This workflow runs on every push and enforces code quality
+# If any step fails, the commit is rejected
+on:
+  push:
+    branches-ignore: [ 'gh-pages' ]  # Ignore documentation deployments
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Cancel previous runs on new push to same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate (Format → Lint → Test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        # Needed for potential auto-fixes
+        fetch-depth: 0
+
+    - name: Install Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        components: rustfmt, clippy
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    # Phase 1: Auto-format code
+    - name: 🎨 Format code automatically
+      run: |
+        echo "::group::Formatting code"
+        cargo fmt --all
+        echo "::endgroup::"
+
+    # Check if formatting made changes
+    - name: Check for formatting changes
+      id: format-changes
+      run: |
+        if [[ -n $(git status --porcelain) ]]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "Code was formatted automatically"
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "Code was already properly formatted"
+        fi
+
+    # Phase 2: Lint with Clippy
+    - name: 🔍 Run Clippy linting (strict)
+      run: |
+        echo "::group::Running Clippy"
+        cargo clippy --all-targets --all-features -- -D warnings
+        echo "::endgroup::"
+
+    # Phase 3: Run comprehensive tests
+    - name: 🧪 Run all tests
+      run: |
+        echo "::group::Running test suite"
+        cargo test --verbose --all-features
+        echo "::endgroup::"
+
+    # Phase 4: Build in release mode to catch additional issues
+    - name: 🏗️ Build in release mode
+      run: |
+        echo "::group::Building release"
+        cargo build --release --verbose
+        echo "::endgroup::"
+
+    # Phase 5: Check documentation builds without warnings
+    - name: 📚 Check documentation
+      run: |
+        echo "::group::Checking documentation"
+        cargo doc --no-deps --all-features --document-private-items
+        echo "::endgroup::"
+      env:
+        RUSTDOCFLAGS: "-D warnings"
+
+    # Auto-commit formatting changes if any (only on push to main)
+    - name: 🔄 Auto-commit formatting changes
+      if: steps.format-changes.outputs.changes == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        git commit -m "style: automatic code formatting [skip ci]
+
+        🤖 Generated with GitHub Actions
+        - cargo fmt applied automatically
+        - all tests passing ✅" || exit 0
+
+    - name: 🚀 Push formatting changes
+      if: steps.format-changes.outputs.changes == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: ${{ github.ref }}
+
+    # Summary step
+    - name: ✅ Quality Gate Summary
+      run: |
+        echo "::notice title=Quality Gate Passed::All quality checks passed successfully!"
+        echo "✅ Code formatting: OK"
+        echo "✅ Clippy linting: OK"
+        echo "✅ Test suite: OK"
+        echo "✅ Release build: OK"
+        echo "✅ Documentation: OK"
+
+    # Failure notification
+    - name: ❌ Quality Gate Failed
+      if: failure()
+      run: |
+        echo "::error title=Quality Gate Failed::One or more quality checks failed!"
+        echo "❌ Please fix the issues above before committing"
+        echo "💡 Run locally: cargo fmt && cargo clippy -- -D warnings && cargo test"
+        exit 1
+
+  # Separate job for performance regression detection
+  performance-check:
+    name: Performance Regression Check
+    runs-on: ubuntu-latest
+    # Only run on main branch to avoid noise
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+
+    - name: Cache Cargo dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-bench-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-bench-
+
+    - name: 🏃 Run benchmarks
+      run: |
+        echo "::group::Performance benchmarks"
+        cargo bench --verbose || echo "::warning::Benchmarks completed with warnings"
+        echo "::endgroup::"
+      continue-on-error: true

@@ -10,3 +10,5 @@ INTERNAL_CI_GUIDE.md
 hosts_*.json
 *.backup
 /test
+
+.trunk

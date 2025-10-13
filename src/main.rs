@@ -5,46 +5,23 @@ use std::path::PathBuf;
 mod config;
 mod core;
 mod ssh;
-mod ui;
 mod utils;
 
 use config::HostsConfig;
 use core::uploader::Uploader;
-use ui::MultiScreenTuiApp;
 
 fn main() -> Result<()> {
-    // Ne pas initialiser de logger ici - sera fait selon le mode
+    env_logger::init();
 
     let app = Command::new("xsshend")
         .version("0.2.11")
-        .about("Outil Rust de téléversement multi-SSH avec interface TUI")
-        // Arguments globaux pour mode interactif direct
-        .arg(
-            Arg::new("interactive")
-                .long("interactive")
-                .short('i')
-                .help("Lance le mode interactif pour sélectionner fichiers et serveurs")
-                .action(clap::ArgAction::SetTrue),
-        )
+        .about("Outil Rust de téléversement multi-SSH (CLI uniquement)")
         .arg(
             Arg::new("list")
                 .long("list")
                 .short('l')
                 .help("Affiche la liste de toutes les cibles disponibles")
                 .action(clap::ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("online-only")
-                .long("online-only")
-                .short('o')
-                .help("En mode TUI, affiche seulement les serveurs en ligne (avec timeout de connectivité)")
-                .action(clap::ArgAction::SetTrue),
-        )
-        .arg(
-            Arg::new("files")
-                .help("Fichiers à téléverser (optionnel en mode interactif)")
-                .num_args(0..)
-                .value_name("FILE"),
         )
         .subcommand(
             Command::new("upload")
@@ -82,47 +59,24 @@ fn main() -> Result<()> {
                         .default_value("/tmp/"),
                 )
                 .arg(
-                    Arg::new("interactive")
-                        .long("interactive")
-                        .short('i')
-                        .help("Mode interactif pour sélectionner les serveurs")
-                        .action(clap::ArgAction::SetTrue),
-                )
-                .arg(
                     Arg::new("dry-run")
                         .long("dry-run")
                         .help("Simulation sans transfert réel")
                         .action(clap::ArgAction::SetTrue),
-                )
-                .arg(
-                    Arg::new("verbose")
-                        .long("verbose")
-                        .short('v')
-                        .help("Mode verbeux")
-                        .action(clap::ArgAction::SetTrue),
-                )
-                .arg(
-                    Arg::new("ssh-key")
-                        .long("ssh-key")
-                        .short('k')
-                        .help("Clé SSH à utiliser (nom du fichier sans extension, ex: id_ed25519)")
-                        .value_name("KEY_NAME"),
-                )
-                .arg(
-                    Arg::new("ssh-key-interactive")
-                        .long("ssh-key-interactive")
-                        .help("Sélection interactive de la clé SSH à utiliser")
-                        .action(clap::ArgAction::SetTrue),
-                )
-                .arg(
-                    Arg::new("ssh-key-auto")
-                        .long("ssh-key-auto")
-                        .help("Force la sélection automatique de la meilleure clé SSH disponible")
-                        .action(clap::ArgAction::SetTrue)
-                        .conflicts_with_all(["ssh-key", "ssh-key-interactive"]),
                 ),
         )
-        .subcommand(Command::new("list").about("Liste les serveurs disponibles"));
+        .subcommand(Command::new("list").about("Liste les serveurs disponibles"))
+        .subcommand(
+            Command::new("init")
+                .about("Initialise la configuration xsshend et aide à configurer SSH")
+                .arg(
+                    Arg::new("force")
+                        .long("force")
+                        .short('f')
+                        .help("Remplace la configuration existante")
+                        .action(clap::ArgAction::SetTrue),
+                ),
+        );
 
     let matches = app.get_matches();
 
@@ -130,7 +84,6 @@ fn main() -> Result<()> {
     if matches.get_flag("list") {
         println!("🔍 Liste des cibles SSH disponibles:\n");
 
-        // Charger la configuration avec vérification
         let config = match HostsConfig::load() {
             Ok(config) => config,
             Err(e) => {
@@ -143,68 +96,12 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    // Si aucune sous-commande n'est fournie, lancer le TUI par défaut
-    if matches.subcommand().is_none() && !matches.get_flag("interactive") {
-        // Le logger TUI sera initialisé dans MultiScreenTuiApp
-
-        // Charger la configuration avec vérification
-        let config = match HostsConfig::load() {
-            Ok(config) => config,
-            Err(e) => {
-                eprintln!("❌ Erreur lors du chargement de la configuration: {}", e);
-                std::process::exit(1);
-            }
-        };
-
-        // Lancer le TUI multi-écrans
-        let mut tui_app = if matches.get_flag("online-only") {
-            MultiScreenTuiApp::new_with_connectivity_check(&config, 5)? // timeout 5s
-        } else {
-            MultiScreenTuiApp::new(&config)?
-        };
-
-        tui_app.run()?;
-        return Ok(());
-    }
-
-    // Initialiser env_logger pour le mode CLI
-    env_logger::init();
-
-    // Vérifier si le mode interactif global est activé
-    if matches.get_flag("interactive") {
-        log::info!("🚀 xsshend - Mode Interactif");
-
-        // Charger la configuration avec vérification
-        let config = match HostsConfig::load() {
-            Ok(config) => config,
-            Err(e) => {
-                eprintln!("❌ Erreur lors du chargement de la configuration: {}", e);
-                std::process::exit(1);
-            }
-        };
-
-        // Sélectionner les fichiers (de la ligne de commande ou interactivement)
-        let files: Vec<PathBuf> = if let Some(file_args) = matches.get_many::<String>("files") {
-            file_args.map(PathBuf::from).collect()
-        } else {
-            Vec::new() // On laissera l'interface TUI gérer la sélection des fichiers
-        };
-
-        // Lancer l'interface TUI hiérarchique complète
-        let mut tui_app = if matches.get_flag("online-only") {
-            log::info!("🔍 Mode connectivité: vérification des serveurs en ligne...");
-            MultiScreenTuiApp::new_with_connectivity_check(&config, 5)? // timeout 5s
-        } else {
-            MultiScreenTuiApp::new(&config)?
-        };
-
-        // Si des fichiers sont fournis en ligne de commande, les pré-sélectionner
-        if !files.is_empty() {
-            tui_app.set_selected_files(files)?;
-        }
-
-        tui_app.run()?;
-
+    // Si aucune sous-commande n'est fournie, afficher l'aide
+    if matches.subcommand().is_none() {
+        println!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
+        println!("Exemples:");
+        println!("  xsshend upload file.txt --env Production");
+        println!("  xsshend --list");
         return Ok(());
     }
 
@@ -218,7 +115,7 @@ fn main() -> Result<()> {
 
             println!("🚀 xsshend - Téléversement Multi-SSH");
 
-            // Charger la configuration avec vérification
+            // Charger la configuration
             let config = match HostsConfig::load() {
                 Ok(config) => config,
                 Err(e) => {
@@ -227,221 +124,33 @@ fn main() -> Result<()> {
                 }
             };
 
-            // Déterminer les serveurs cibles
-            let target_hosts = if sub_matches.get_flag("interactive") {
-                // Mode interactif - lancer l'interface TUI hiérarchique
-                log::info!("🚀 Mode interactif - Interface TUI hiérarchique");
+            // Mode filtré par arguments
+            let env = sub_matches.get_one::<String>("env");
+            let region = sub_matches.get_one::<String>("region");
+            let server_type = sub_matches.get_one::<String>("type");
 
-                let mut tui_app = MultiScreenTuiApp::new(&config)?;
-                tui_app.set_selected_files(files.clone())?;
-                tui_app.run()?;
-
-                return Ok(());
-            } else {
-                // Mode filtré par arguments
-                let env = sub_matches.get_one::<String>("env");
-                let region = sub_matches.get_one::<String>("region");
-                let server_type = sub_matches.get_one::<String>("type");
-
-                config.filter_hosts(env, region, server_type)
-            };
+            let target_hosts = config.filter_hosts(env, region, server_type);
 
             if target_hosts.is_empty() {
-                log::error!("❌ Aucun serveur trouvé avec les critères spécifiés");
+                println!("❌ Aucun serveur trouvé avec les critères spécifiés");
                 return Ok(());
             }
 
-            // Gestion de la sélection et validation de clé SSH
-            let validated_ssh_key = if sub_matches.get_flag("ssh-key-interactive") {
-                // Sélection interactive de la clé SSH avec validation de passphrase
-                println!("🔑 Sélection interactive de la clé SSH...");
-                use crate::ssh::keys::SshKeyManager;
-
-                let key_manager = match SshKeyManager::new() {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        log::error!(
-                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
-                            e
-                        );
-                        std::process::exit(1);
-                    }
-                };
-
-                match key_manager.select_key_interactive_with_passphrase() {
-                    Ok(validated_key) => validated_key,
-                    Err(e) => {
-                        log::error!(
-                            "❌ Erreur lors de la sélection/validation de clé SSH: {}",
-                            e
-                        );
-                        std::process::exit(1);
-                    }
-                }
-            } else if let Some(key_name) = sub_matches.get_one::<String>("ssh-key") {
-                // Clé spécifiée par nom avec validation de passphrase
-                println!("🔑 Recherche et validation de la clé SSH: {}", key_name);
-                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
-
-                let key_manager = match SshKeyManager::new() {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        log::error!(
-                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
-                            e
-                        );
-                        std::process::exit(1);
-                    }
-                };
-
-                match key_manager.get_key_by_name(key_name) {
-                    Some(key) => {
-                        println!("✅ Clé SSH trouvée: {}", key.description());
-
-                        // Valider la passphrase
-                        match key_manager.prompt_and_validate_passphrase(key) {
-                            Ok(passphrase) => Some(SshKeyWithPassphrase {
-                                key: key.clone(),
-                                passphrase,
-                            }),
-                            Err(e) => {
-                                log::error!(
-                                    "❌ Erreur lors de la validation de la passphrase: {}",
-                                    e
-                                );
-                                std::process::exit(1);
-                            }
-                        }
-                    }
-                    None => {
-                        log::error!("❌ Clé SSH '{}' non trouvée", key_name);
-                        std::process::exit(1);
-                    }
-                }
-            } else if sub_matches.get_flag("ssh-key-auto") {
-                // Force la sélection automatique de la meilleure clé avec validation
-                println!("🔑 Sélection automatique forcée de la clé SSH...");
-                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
-
-                let key_manager = match SshKeyManager::new() {
-                    Ok(manager) => manager,
-                    Err(e) => {
-                        log::error!(
-                            "❌ Impossible d'initialiser le gestionnaire de clés SSH: {}",
-                            e
-                        );
-                        std::process::exit(1);
-                    }
-                };
-
-                if let Some(best_key) = key_manager.select_best_key() {
-                    println!("✅ Clé SSH sélectionnée: {}", best_key.description());
-
-                    // Valider la passphrase
-                    match key_manager.prompt_and_validate_passphrase(best_key) {
-                        Ok(passphrase) => Some(SshKeyWithPassphrase {
-                            key: best_key.clone(),
-                            passphrase,
-                        }),
-                        Err(e) => {
-                            log::error!("❌ Erreur lors de la validation de la passphrase: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                } else {
-                    println!("⚠️ Aucune clé SSH trouvée");
-                    None
-                }
-            } else {
-                // Mode automatique avec validation si une clé est trouvée
-                use crate::ssh::keys::{SshKeyManager, SshKeyWithPassphrase};
-
-                match SshKeyManager::new() {
-                    Ok(key_manager) => {
-                        let keys = key_manager.get_keys();
-                        match keys.len().cmp(&1) {
-                            std::cmp::Ordering::Greater => {
-                                println!("🔑 Plusieurs clés SSH détectées.");
-                                println!(
-                                    "🤔 Sélection automatique de la meilleure clé, ou utilisez --ssh-key-interactive pour choisir manuellement"
-                                );
-
-                                if let Some(best_key) = key_manager.select_best_key() {
-                                    println!(
-                                        "🔑 Clé sélectionnée automatiquement: {}",
-                                        best_key.description()
-                                    );
-
-                                    // Valider la passphrase
-                                    match key_manager.prompt_and_validate_passphrase(best_key) {
-                                        Ok(passphrase) => Some(SshKeyWithPassphrase {
-                                            key: best_key.clone(),
-                                            passphrase,
-                                        }),
-                                        Err(e) => {
-                                            log::error!(
-                                                "❌ Erreur lors de la validation de la passphrase: {}",
-                                                e
-                                            );
-                                            std::process::exit(1);
-                                        }
-                                    }
-                                } else {
-                                    None
-                                }
-                            }
-                            std::cmp::Ordering::Equal => {
-                                let key = &keys[0];
-                                println!("🔑 Clé SSH unique trouvée: {}", key.description());
-
-                                // Valider la passphrase
-                                match key_manager.prompt_and_validate_passphrase(key) {
-                                    Ok(passphrase) => Some(SshKeyWithPassphrase {
-                                        key: key.clone(),
-                                        passphrase,
-                                    }),
-                                    Err(e) => {
-                                        log::error!(
-                                            "❌ Erreur lors de la validation de la passphrase: {}",
-                                            e
-                                        );
-                                        std::process::exit(1);
-                                    }
-                                }
-                            }
-                            std::cmp::Ordering::Less => {
-                                println!("🔑 Aucune clé SSH trouvée, utilisation de ssh-agent");
-                                None
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // Pas de clé spécifiée, utiliser le comportement par défaut (ssh-agent)
-                        None
-                    }
-                }
-            };
+            // SSH utilise automatiquement les clés disponibles et ssh-agent
+            println!("🔑 Utilisation automatique des clés SSH disponibles");
 
             // Destination et fichiers
             let destination = sub_matches.get_one::<String>("dest").unwrap();
             let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
 
-            // Créer l'uploader avec la clé validée
-            let mut uploader = if let Some(validated_key) = validated_ssh_key {
-                log::info!(
-                    "🔑 Utilisation de la clé SSH validée: {}",
-                    validated_key.key.description()
-                );
-                Uploader::new_with_validated_key(validated_key)
-            } else {
-                Uploader::new()
-            };
+            // Créer l'uploader simple
+            let uploader = Uploader::new();
 
             if sub_matches.get_flag("dry-run") {
                 // Mode dry-run - simulation
                 uploader.dry_run(&file_refs, &target_hosts, destination)?;
             } else {
-                // Mode direct avec pool SSH optimisé
+                // Mode direct simplifié
                 uploader.upload_files(&file_refs, &target_hosts, destination)?;
             }
         }
@@ -458,10 +167,213 @@ fn main() -> Result<()> {
 
             config.display_all_targets();
         }
+        Some(("init", sub_matches)) => {
+            let force = sub_matches.get_flag("force");
+            init_setup(force)?;
+        }
         _ => {
-            log::info!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
+            println!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
         }
     }
 
     Ok(())
+}
+
+/// Fonction d'initialisation pour configurer xsshend
+fn init_setup(force: bool) -> Result<()> {
+    use dirs::home_dir;
+    use std::fs;
+
+    println!("🚀 Initialisation de xsshend");
+    println!();
+
+    // Vérifier le répertoire home
+    let home =
+        home_dir().ok_or_else(|| anyhow::anyhow!("Impossible de trouver le répertoire home"))?;
+    let ssh_dir = home.join(".ssh");
+
+    // 1. Créer le répertoire .ssh s'il n'existe pas
+    if !ssh_dir.exists() {
+        println!("📁 Création du répertoire ~/.ssh");
+        fs::create_dir_all(&ssh_dir)?;
+        // Permissions sécurisées pour .ssh
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&ssh_dir)?.permissions();
+            perms.set_mode(0o700);
+            fs::set_permissions(&ssh_dir, perms)?;
+        }
+        println!("✅ Répertoire ~/.ssh créé avec les bonnes permissions");
+    } else {
+        println!("📁 Répertoire ~/.ssh existe déjà");
+    }
+
+    // 2. Vérifier les clés SSH existantes
+    println!();
+    println!("🔑 Vérification des clés SSH...");
+
+    let key_types = ["id_ed25519", "id_rsa", "id_ecdsa"];
+    let mut existing_keys = Vec::new();
+
+    for key_type in &key_types {
+        let key_path = ssh_dir.join(key_type);
+        if key_path.exists() {
+            existing_keys.push(key_type);
+            println!("✅ Clé trouvée: {}", key_type);
+        }
+    }
+
+    if existing_keys.is_empty() {
+        println!("⚠️ Aucune clé SSH trouvée");
+        println!();
+        println!("💡 Pour créer une nouvelle clé SSH Ed25519 (recommandée), exécutez:");
+        println!("   ssh-keygen -t ed25519 -C \"votre.email@example.com\"");
+        println!();
+        println!("💡 Pour créer une clé RSA compatible (si Ed25519 n'est pas supporté):");
+        println!("   ssh-keygen -t rsa -b 4096 -C \"votre.email@example.com\"");
+        println!();
+
+        // Demander si l'utilisateur veut créer une clé maintenant
+        if confirm_action("Voulez-vous créer une clé SSH Ed25519 maintenant ?") {
+            create_ssh_key(&ssh_dir)?;
+        }
+    } else {
+        let keys_str: Vec<String> = existing_keys.iter().map(|s| s.to_string()).collect();
+        println!(
+            "✅ {} clé(s) SSH trouvée(s): {}",
+            existing_keys.len(),
+            keys_str.join(", ")
+        );
+    }
+
+    // 3. Configurer hosts.json
+    println!();
+    println!("📋 Configuration du fichier hosts.json...");
+
+    let hosts_config_path = ssh_dir.join("hosts.json");
+    let config_exists = hosts_config_path.exists();
+
+    if config_exists && !force {
+        println!(
+            "✅ Fichier hosts.json existe déjà: {}",
+            hosts_config_path.display()
+        );
+        println!("   Utilisez --force pour le remplacer");
+    } else {
+        if config_exists {
+            println!("🔄 Remplacement du fichier hosts.json existant");
+        } else {
+            println!("📝 Création du fichier hosts.json");
+        }
+
+        HostsConfig::create_default_config()?;
+        println!(
+            "✅ Fichier hosts.json créé: {}",
+            hosts_config_path.display()
+        );
+        println!();
+        println!("📝 Éditez ce fichier pour ajouter vos serveurs:");
+        println!("   nano ~/.ssh/hosts.json");
+        println!("   ou");
+        println!("   code ~/.ssh/hosts.json");
+    }
+
+    // 4. Informations sur ssh-agent
+    println!();
+    println!("🔧 Configuration SSH recommandée:");
+    println!();
+
+    if std::env::var("SSH_AUTH_SOCK").is_ok() {
+        println!("✅ ssh-agent est actif");
+    } else {
+        println!("⚠️ ssh-agent n'est pas actif");
+        println!("💡 Pour démarrer ssh-agent, ajoutez à votre ~/.bashrc ou ~/.zshrc:");
+        println!("   eval \"$(ssh-agent -s)\"");
+        println!("   ssh-add ~/.ssh/id_ed25519  # ou votre clé préférée");
+    }
+
+    // 5. Conseils finaux
+    println!();
+    println!("🎯 Prochaines étapes:");
+    println!("1. Éditez ~/.ssh/hosts.json avec vos serveurs");
+    println!("2. Copiez vos clés publiques sur vos serveurs:");
+    println!("   ssh-copy-id user@votre-serveur.com");
+    println!("3. Testez la connexion:");
+    println!("   xsshend upload fichier-test.txt --env Production --dry-run");
+    println!();
+    println!("✅ Initialisation terminée !");
+
+    Ok(())
+}
+
+/// Créer une nouvelle clé SSH Ed25519
+fn create_ssh_key(ssh_dir: &std::path::Path) -> Result<()> {
+    use std::io::{self, Write};
+
+    print!("📧 Entrez votre adresse email pour la clé SSH: ");
+    io::stdout().flush()?;
+
+    let mut email = String::new();
+    io::stdin().read_line(&mut email)?;
+    let email = email.trim();
+
+    if email.is_empty() {
+        println!("⚠️ Email vide, utilisation d'un commentaire par défaut");
+    }
+
+    let key_path = ssh_dir.join("id_ed25519");
+    let comment = if email.is_empty() {
+        "xsshend-generated-key".to_string()
+    } else {
+        email.to_string()
+    };
+
+    println!("🔑 Création de la clé SSH Ed25519...");
+
+    let output = std::process::Command::new("ssh-keygen")
+        .args([
+            "-t",
+            "ed25519",
+            "-f",
+            key_path.to_str().unwrap(),
+            "-C",
+            &comment,
+            "-N",
+            "", // Pas de passphrase pour simplifier
+        ])
+        .output()?;
+
+    if output.status.success() {
+        println!("✅ Clé SSH créée: {}", key_path.display());
+        println!("✅ Clé publique: {}.pub", key_path.display());
+
+        // Afficher la clé publique
+        if let Ok(pub_key) = std::fs::read_to_string(format!("{}.pub", key_path.display())) {
+            println!();
+            println!("📋 Votre clé publique (à copier sur vos serveurs):");
+            println!("{}", pub_key.trim());
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Erreur lors de la création de la clé SSH: {}", stderr);
+    }
+
+    Ok(())
+}
+
+/// Demander confirmation à l'utilisateur
+fn confirm_action(message: &str) -> bool {
+    use std::io::{self, Write};
+
+    print!("{} (y/N): ", message);
+    io::stdout().flush().unwrap();
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap();
+
+    matches!(
+        input.trim().to_lowercase().as_str(),
+        "y" | "yes" | "o" | "oui"
+    )
 }

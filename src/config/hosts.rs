@@ -80,26 +80,26 @@ impl HostsConfig {
 
         for (env_name, regions) in &self.environments {
             // Filtrer par environnement
-            if let Some(env) = env_filter {
-                if env_name != env {
-                    continue;
-                }
+            if let Some(env) = env_filter
+                && env_name != env
+            {
+                continue;
             }
 
             for (region_name, server_types) in regions {
                 // Filtrer par région
-                if let Some(region) = region_filter {
-                    if region_name != region {
-                        continue;
-                    }
+                if let Some(region) = region_filter
+                    && region_name != region
+                {
+                    continue;
                 }
 
                 for (type_name, hosts) in server_types {
                     // Filtrer par type
-                    if let Some(server_type) = type_filter {
-                        if type_name != server_type {
-                            continue;
-                        }
+                    if let Some(server_type) = type_filter
+                        && type_name != server_type
+                    {
+                        continue;
                     }
 
                     for (host_name, host_entry) in hosts {
@@ -115,6 +115,7 @@ impl HostsConfig {
     }
 
     /// Retourne tous les hôtes sous forme de liste plate
+    #[allow(dead_code)]
     pub fn get_all_hosts(&self) -> Vec<(String, &HostEntry)> {
         self.filter_hosts(None, None, None)
     }
@@ -151,35 +152,33 @@ impl HostsConfig {
         println!("   xsshend upload --region Region-A --type Public file.txt");
     }
 
-    /// Filtre les hôtes pour ne retourner que ceux qui sont en ligne (version synchrone)
+    /// Filtre les hôtes pour ne retourner que ceux qui sont en ligne (version simplifiée)
+    #[allow(dead_code)]
     pub fn get_online_hosts_sync(&self, timeout_secs: u64) -> Vec<(String, HostEntry)> {
-        use rayon::prelude::*;
         use std::process::Command;
         use std::time::Instant;
 
         let all_hosts: Vec<(String, HostEntry)> = self
             .environments
-            .par_iter()
+            .iter()
             .flat_map(|(env_name, env)| {
-                env.par_iter().flat_map(move |(region_name, region)| {
-                    region.par_iter().flat_map(move |(type_name, server_type)| {
-                        server_type
-                            .par_iter()
-                            .map(move |(server_name, host_entry)| {
-                                let full_path = format!(
-                                    "{} > {} > {} > {}",
-                                    env_name, region_name, type_name, server_name
-                                );
-                                (full_path, host_entry.clone())
-                            })
+                env.iter().flat_map(move |(region_name, region)| {
+                    region.iter().flat_map(move |(type_name, server_type)| {
+                        server_type.iter().map(move |(server_name, host_entry)| {
+                            let full_path = format!(
+                                "{} > {} > {} > {}",
+                                env_name, region_name, type_name, server_name
+                            );
+                            (full_path, host_entry.clone())
+                        })
                     })
                 })
             })
             .collect();
 
-        // Test de connectivité en parallèle
+        // Test de connectivité séquentiel
         all_hosts
-            .par_iter()
+            .iter()
             .filter_map(|(path, host_entry)| {
                 let start = Instant::now();
 
