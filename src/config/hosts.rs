@@ -114,12 +114,6 @@ impl HostsConfig {
         results
     }
 
-    /// Retourne tous les hôtes sous forme de liste plate
-    #[allow(dead_code)]
-    pub fn get_all_hosts(&self) -> Vec<(String, &HostEntry)> {
-        self.filter_hosts(None, None, None)
-    }
-
     /// Affiche toutes les cibles SSH disponibles de manière hiérarchique
     pub fn display_all_targets(&self) {
         let mut total_targets = 0;
@@ -150,97 +144,6 @@ impl HostsConfig {
         println!("   xsshend upload --env Production file.txt");
         println!("   xsshend upload --env Staging --region Region-A file.txt");
         println!("   xsshend upload --region Region-A --type Public file.txt");
-    }
-
-    /// Filtre les hôtes pour ne retourner que ceux qui sont en ligne (version simplifiée)
-    #[allow(dead_code)]
-    pub fn get_online_hosts_sync(&self, timeout_secs: u64) -> Vec<(String, HostEntry)> {
-        use std::process::Command;
-        use std::time::Instant;
-
-        let all_hosts: Vec<(String, HostEntry)> = self
-            .environments
-            .iter()
-            .flat_map(|(env_name, env)| {
-                env.iter().flat_map(move |(region_name, region)| {
-                    region.iter().flat_map(move |(type_name, server_type)| {
-                        server_type.iter().map(move |(server_name, host_entry)| {
-                            let full_path = format!(
-                                "{} > {} > {} > {}",
-                                env_name, region_name, type_name, server_name
-                            );
-                            (full_path, host_entry.clone())
-                        })
-                    })
-                })
-            })
-            .collect();
-
-        // Test de connectivité séquentiel
-        all_hosts
-            .iter()
-            .filter_map(|(path, host_entry)| {
-                let start = Instant::now();
-
-                // Parser l'alias pour extraire user@host:port
-                let parts: Vec<&str> = host_entry.alias.splitn(2, '@').collect();
-                if parts.len() != 2 {
-                    log::warn!("Format alias invalide: {}", host_entry.alias);
-                    return None;
-                }
-
-                let host_part = parts[1];
-                let (_host, port) = if host_part.contains(':') {
-                    let host_port: Vec<&str> = host_part.splitn(2, ':').collect();
-                    (host_port[0], host_port.get(1).copied().unwrap_or("22"))
-                } else {
-                    (host_part, "22")
-                };
-
-                // Test de connectivité SSH avec timeout
-                let output = Command::new("ssh")
-                    .args([
-                        "-o",
-                        "ConnectTimeout=3",
-                        "-o",
-                        "StrictHostKeyChecking=no",
-                        "-o",
-                        "UserKnownHostsFile=/dev/null",
-                        "-o",
-                        "BatchMode=yes",
-                        "-p",
-                        port,
-                        &host_entry.alias,
-                        "exit",
-                    ])
-                    .output();
-
-                let elapsed = start.elapsed();
-                if elapsed.as_secs() > timeout_secs {
-                    log::debug!("Timeout pour {}: {}s", host_entry.alias, elapsed.as_secs());
-                    return None;
-                }
-
-                match output {
-                    Ok(output) if output.status.success() => {
-                        log::debug!(
-                            "✅ {} en ligne ({}ms)",
-                            host_entry.alias,
-                            elapsed.as_millis()
-                        );
-                        Some((path.clone(), host_entry.clone()))
-                    }
-                    Ok(_) => {
-                        log::debug!("❌ {} hors ligne", host_entry.alias);
-                        None
-                    }
-                    Err(e) => {
-                        log::debug!("❌ Erreur SSH pour {}: {}", host_entry.alias, e);
-                        None
-                    }
-                }
-            })
-            .collect()
     }
 
     /// Crée un fichier de configuration par défaut avec des exemples
@@ -414,7 +317,7 @@ mod tests {
         "#;
 
         let config: HostsConfig = serde_json::from_str(json_content).unwrap();
-        assert_eq!(config.get_all_hosts().len(), 1); // Use get_all_hosts instead of count_hosts
+        assert_eq!(config.filter_hosts(None, None, None).len(), 1);
     }
 
     #[test]

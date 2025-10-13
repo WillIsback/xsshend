@@ -1,14 +1,6 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// Représente une clé SSH avec sa passphrase validée
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub struct SshKeyWithPassphrase {
-    pub key: SshKey,
-    pub passphrase: Option<String>,
-}
 
 /// Représente une clé SSH disponible
 #[derive(Debug, Clone, PartialEq)]
@@ -154,12 +146,6 @@ impl SshKey {
         }
         desc
     }
-
-    /// Vérifie si la clé existe et est lisible
-    #[allow(dead_code)]
-    pub fn is_valid(&self) -> bool {
-        self.private_key_path.exists() && self.private_key_path.is_file()
-    }
 }
 
 /// Gestionnaire des clés SSH multiples
@@ -257,12 +243,6 @@ impl SshKeyManager {
         Ok(())
     }
 
-    /// Retourne toutes les clés disponibles
-    #[allow(dead_code)]
-    pub fn get_keys(&self) -> &[SshKey] {
-        &self.keys
-    }
-
     /// Sélectionne automatiquement la meilleure clé disponible (non-interactive)
     pub fn select_key_auto(&self) -> Option<&SshKey> {
         if self.keys.is_empty() {
@@ -305,22 +285,6 @@ impl SshKeyManager {
         );
         Some(best_key)
     }
-
-    /// Crée une clé validée avec passphrase si nécessaire (simplifié)
-    #[allow(dead_code)]
-    pub fn create_validated_key(&self, key: &SshKey) -> SshKeyWithPassphrase {
-        // Version simplifiée : on laisse SSH gérer les passphrases via ssh-agent
-        SshKeyWithPassphrase {
-            key: key.clone(),
-            passphrase: None, // SSH agent gérera automatiquement
-        }
-    }
-
-    /// Trouve une clé par nom
-    #[allow(dead_code)]
-    pub fn get_key_by_name(&self, name: &str) -> Option<&SshKey> {
-        self.keys.iter().find(|key| key.name == name)
-    }
 }
 
 #[cfg(test)]
@@ -339,7 +303,6 @@ mod tests {
 
         let key = SshKey::new("test_key".to_string(), key_path).unwrap();
         assert_eq!(key.name, "test_key");
-        assert!(key.is_valid());
     }
 
     #[test]

@@ -81,25 +81,6 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
     }
 
     #[test]
-    fn test_ssh_key_validation() {
-        let temp_dir = create_test_ssh_dir();
-        let key_path = temp_dir.path().join(".ssh/id_ed25519");
-        let ssh_key = SshKey::new("id_ed25519".to_string(), key_path).unwrap();
-
-        assert!(ssh_key.is_valid());
-
-        // Test avec un fichier inexistant
-        let invalid_key = SshKey {
-            name: "nonexistent".to_string(),
-            private_key_path: temp_dir.path().join("nonexistent"),
-            public_key_path: None,
-            key_type: SshKeyType::Unknown("test".to_string()),
-            comment: None,
-        };
-        assert!(!invalid_key.is_valid());
-    }
-
-    #[test]
     fn test_ssh_key_manager_creation() {
         // Note: Ce test dépend de l'environnement réel
         // Dans un vrai environnement de test, on mockrait dirs::home_dir()

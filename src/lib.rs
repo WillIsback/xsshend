@@ -11,5 +11,5 @@ pub use config::{HostEntry, HostsConfig};
 pub use core::{uploader::Uploader, validator::Validator};
 pub use ssh::{
     client::SshClient,
-    keys::{SshKey, SshKeyManager, SshKeyType, SshKeyWithPassphrase},
+    keys::{SshKey, SshKeyManager, SshKeyType},
 };
