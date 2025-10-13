@@ -1,7 +1,7 @@
 ---
 layout: home
-title: "xsshend - Téléversement SSH parallèle"
-description: "Outil Rust moderne pour le téléversement parallèle de fichiers vers multiples serveurs SSH avec interface TUI"
+title: "xsshend - Téléversement SSH simple et efficace"
+description: "Outil Rust moderne pour le téléversement de fichiers vers multiples serveurs SSH avec interface CLI"
 ---
 
 <div class="section">
@@ -9,35 +9,35 @@ description: "Outil Rust moderne pour le téléversement parallèle de fichiers 
     <div class="highlight">
         <pre><code>cargo install xsshend</code></pre>
     </div>
-    <p>xsshend est un outil Rust moderne pour le téléversement parallèle de fichiers vers multiples serveurs SSH. Avec une interface TUI intuitive et des performances optimisées.</p>
+    <p>xsshend est un outil Rust moderne pour le téléversement de fichiers vers multiples serveurs SSH. Interface en ligne de commande simple et intuitive avec suivi en temps réel.</p>
 </div>
 
 <div class="section">
     <h2>✨ Fonctionnalités principales</h2>
     <div class="features">
         <div class="feature">
-            <h3>🌳 Interface hiérarchique</h3>
-            <p>Navigation intuitive dans une arborescence de serveurs organisée par environnement et région</p>
+            <h3>🎯 Interface CLI simple</h3>
+            <p>Commandes intuitives avec filtrage avancé par environnement, région et type de serveur</p>
         </div>
         <div class="feature">
-            <h3>🔄 Téléversement parallèle</h3>
-            <p>Transferts simultanés vers plusieurs serveurs SSH avec suivi temps réel</p>
+            <h3>📊 Transferts en temps réel</h3>
+            <p>Barres de progression et suivi détaillé pour chaque serveur</p>
         </div>
         <div class="feature">
-            <h3>⚡ Performance Rust</h3>
-            <p>Threading natif et gestion mémoire optimisée pour des transferts rapides</p>
+            <h3>⚡ Performance optimisée</h3>
+            <p>Architecture simplifiée suivant les principes SOLID pour une efficacité maximale</p>
         </div>
         <div class="feature">
             <h3>🔐 Sécurité intégrée</h3>
-            <p>Support des clés SSH, agent SSH et génération automatique de clés</p>
+            <p>Découverte automatique des clés SSH avec support complet de ssh-agent</p>
         </div>
         <div class="feature">
-            <h3>🎯 Configuration simple</h3>
-            <p>Auto-configuration lors du premier lancement avec assistant intégré</p>
+            <h3>🎯 Configuration assistée</h3>
+            <p>Commande init pour création et configuration automatique</p>
         </div>
         <div class="feature">
-            <h3>🛡️ Gestion d'erreurs</h3>
-            <p>Rapports détaillés et récupération automatique en cas d'échec</p>
+            <h3>🧪 Tests complets</h3>
+            <p>93 tests automatisés garantissent la fiabilité du code</p>
         </div>
     </div>
 </div>
@@ -48,17 +48,20 @@ description: "Outil Rust moderne pour le téléversement parallèle de fichiers 
         <pre><code># Installation
 cargo install xsshend
 
-# Premier lancement (crée automatiquement la configuration)
+# Initialisation avec assistant
+xsshend init
+
+# Lister les serveurs disponibles
 xsshend list
 
-# Téléversement avec interface complète
-xsshend upload
+# Téléversement simple
+xsshend upload fichier.txt
 
-# Mode interactif
-xsshend upload -i fichier.txt
+# Filtrage par environnement
+xsshend upload app.jar --env Production
 
-# Mode ligne de commande
-xsshend upload fichier.txt --targets serveur1,serveur2 --dest /tmp/</code></pre>
+# Mode simulation
+xsshend upload deploy.sh --env Production --dry-run</code></pre>
     </div>
 </div>
 
@@ -73,19 +76,46 @@ xsshend upload fichier.txt --targets serveur1,serveur2 --dest /tmp/</code></pre>
 </div>
 
 <div class="section">
-    <h2>🎮 Interface utilisateur</h2>
-    <p>Interface TUI moderne avec navigation au clavier :</p>
+    <h2>🎮 Interface CLI</h2>
+    <p>Interface en ligne de commande avec filtrage hiérarchique :</p>
     <div class="highlight">
-        <pre><code>📂 Production
-├── 🌐 Region-A  
-│   ├── 📊 Public
-│   │   ├── ✅ WEB_SERVER_01 (web01@prod-web-01.example.com)
-│   │   └── 🔧 API_SERVER_01 (api01@prod-api-01.example.com)
-│   └── 📋 Private
-│       └── 🗄️ DATABASE_01 (db01@prod-db-01.example.com)
-└── 🌐 Region-B
-    └── 📊 Public
-        └── ✅ STAGE_WEB_01 (web01@stage-web-01.example.com)</code></pre>
+        <pre><code># Structure hiérarchique des serveurs
+Production/
+├── Region-A/
+│   ├── Public/     # --env Production --region Region-A --type Public
+│   │   ├── WEB_SERVER_01 → web01@prod-web-01.example.com
+│   │   └── API_SERVER_01 → api01@prod-api-01.example.com
+│   └── Private/    # --env Production --region Region-A --type Private
+│       └── DATABASE_01 → db01@prod-db-01.example.com
+└── Region-B/
+    └── Public/
+        └── CACHE_SERVER_01 → cache01@prod-cache-01.example.com
+
+# Exemples d'utilisation
+xsshend upload config.json --env Production --region Region-A
+xsshend upload app.war --env Production --type Public --dest /opt/tomcat/
+xsshend upload logs/ --env Staging --dry-run</code></pre>
+    </div>
+</div>
+
+<div class="section">
+    <h2>⚡ Progression en temps réel</h2>
+    <div class="highlight">
+        <pre><code>🚀 Début du téléversement: 1 fichier(s) vers 3 serveur(s)
+📂 Destination: /opt/uploads/
+🎯 Serveurs ciblés:
+   • Production:Region-A:Public:WEB_SERVER_01 → web01@prod-web-01.example.com (PROD)
+   • Production:Region-A:Public:API_SERVER_01 → api01@prod-api-01.example.com (PROD)
+   • Production:Region-A:Private:DATABASE_01 → db01@prod-db-01.example.com (PROD)
+
+📤 Téléversement de ./myapp.jar en cours...
+
+web01@prod-web-01... [████████████████████████████████] 2.3MB/2.3MB ✅
+api01@prod-api-01... [██████████████████              ] 1.5MB/2.3MB ⏳
+db01@prod-db-01..... [████████████████████████████     ] 2.1MB/2.3MB ⏳
+
+✅ Téléversement terminé avec succès!
+📊 3 serveur(s) - 0 échec(s)</code></pre>
     </div>
 </div>
 
@@ -97,27 +127,27 @@ xsshend upload fichier.txt --targets serveur1,serveur2 --dest /tmp/</code></pre>
         border-radius: 8px;
         border-left: 4px solid #667eea;
     }
-    
+
     .section h2 {
         color: #333;
         margin-bottom: 15px;
         font-size: 1.5em;
     }
-    
+
     .features {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
         gap: 20px;
         margin: 20px 0;
     }
-    
+
     .feature {
         background: white;
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.1);
     }
-    
+
     .feature h3 {
         color: #667eea;
         margin-bottom: 10px;

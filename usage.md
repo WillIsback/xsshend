@@ -1,12 +1,12 @@
 # 📖 Guide d'utilisation de xsshend
 
-> Guide complet pour maîtriser xsshend - Téléversement SSH parallèle avec interface TUI moderne
+> Guide complet pour maîtriser xsshend - Téléversement SSH simple et efficace via CLI
 
 ## 🎯 Vue d'ensemble
 
-xsshend est un outil Rust moderne pour le téléversement parallèle de fichiers vers multiples serveurs SSH. Il offre une interface TUI hiérarchique intuitive avec suivi en temps réel des transferts.
+xsshend est un outil Rust moderne pour le téléversement de fichiers vers multiples serveurs SSH. Interface en ligne de commande simple avec filtrage avancé et suivi en temps réel des transferts.
 
-## 🚀 Installation et premier lancement
+## 🚀 Installation et configuration
 
 ### Installation via Cargo
 
@@ -14,225 +14,48 @@ xsshend est un outil Rust moderne pour le téléversement parallèle de fichiers
 cargo install xsshend
 ```
 
-### Premier lancement
+### Configuration initiale
 
 ```bash
-# Lancement initial - crée automatiquement la configuration
+# Initialisation assistée avec création du fichier hosts.json
+xsshend init
+
+# Forcer la réinitialisation si nécessaire
+xsshend init --force
+```
+
+### Première utilisation
+
+```bash
+# Lister les serveurs disponibles
 xsshend list
+
+# Aide générale
+xsshend --help
+
+# Aide sur une commande spécifique
+xsshend upload --help
 ```
 
-## ⚙️ Configuration automatique
+## ⚙️ Configuration des serveurs
 
-Au premier lancement, xsshend :
+### Structure hiérarchique
 
-1. **Détecte** l'absence du fichier `~/.ssh/hosts.json`
-2. **Crée automatiquement** le répertoire `~/.ssh` si nécessaire  
-3. **Copie** un fichier d'exemple vers `~/.ssh/hosts.json`
-4. **Vérifie** la présence de clés SSH
-5. **Propose** la génération d'une clé Ed25519 si aucune n'est trouvée
-6. **Guide** l'utilisateur dans la configuration
-
-### Structure créée automatiquement
+xsshend organise les serveurs selon une structure à 3 niveaux :
 
 ```
-~/.ssh/
-├── hosts.json          # Configuration serveurs (créé automatiquement)
-├── id_ed25519          # Clé privée SSH (générée si acceptée)
-├── id_ed25519.pub      # Clé publique SSH
-└── config              # Configuration SSH (optionnel)
+Environment/
+├── Region/
+│   ├── Type/
+│   │   ├── SERVER_NAME_1
+│   │   └── SERVER_NAME_2
+│   └── Type/
+└── Region/
 ```
 
-## 🎮 Premiers transferts
+### Fichier hosts.json
 
-## Interface de listage avec étiquettes CLI
-
-La commande `xsshend list` (ou `xsshend -l`) affiche maintenant un aperçu hiérarchique enrichi avec des étiquettes CLI pour faciliter l'utilisation en ligne de commande :
-
-```bash
-xsshend list
-```
-
-**Exemple de sortie :**
-```
-🔍 Liste des cibles SSH disponibles:
-
-📁 Production (--env Production)
-  📂 Region-A (--region Region-A)
-    📂 Public (--type Public)
-      🖥️  WEB_SERVER_01 → web01@prod-web-01.example.com (PROD)
-      🖥️  API_SERVER_01 → api01@prod-api-01.example.com (PROD)
-    📂 Private (--type Private)
-      🖥️  DATABASE_01 → db01@prod-db-01.example.com (PROD)
-
-📁 Staging (--env Staging)
-  📂 Region-A (--region Region-A)
-    📂 Public (--type Public)
-      🖥️  STAGE_WEB_01 → web01@stage-web-01.example.com (STAGE)
-
-📊 Total: 4 cibles disponibles
-
-💡 Exemples d'utilisation:
-   xsshend upload --env Production file.txt
-   xsshend upload --env Staging --region Region-A file.txt
-   xsshend upload --region Region-A --type Public file.txt
-```
-
-### Utilisation des étiquettes CLI
-
-Les étiquettes facilitent la construction des commandes de filtrage :
-
-#### Filtrage par environnement
-```bash
-# Déployer sur tout l'environnement Production
-xsshend upload --env Production deploy.sh
-
-# Déployer sur l'environnement Staging
-xsshend upload --env Staging config.json
-```
-
-#### Filtrage combiné environnement + région
-```bash
-# Déployer sur Production dans la Region-A uniquement
-xsshend upload --env Production --region Region-A app.jar
-
-# Déployer sur Staging dans une région spécifique
-xsshend upload --env Staging --region Region-B logs.tar.gz
-```
-
-#### Filtrage par environnement + type
-```bash
-# Déployer sur les serveurs publics de Production
-xsshend upload --env Production --type Public web-assets.zip
-
-# Déployer sur les serveurs privés de Staging
-xsshend upload --env Staging --type Private database-backup.sql
-```
-
-#### Filtrage traditionnel (région ou type seulement)
-```bash
-# Déployer sur tous les serveurs d'une région
-xsshend upload --region Region-A monitoring.sh
-
-# Déployer sur tous les serveurs d'un type
-xsshend upload --type Public static-files.tar.gz
-```
-
-## Vérification de connectivité
-
-La nouvelle option `--online-only` permet de vérifier la connectivité des serveurs avant de lancer l'interface TUI :
-
-```bash
-# Lance le TUI en n'affichant que les serveurs en ligne
-xsshend --online-only
-```
-
-Cette option :
-- Teste la connectivité SSH vers chaque serveur avec un timeout (5 secondes par défaut)
-- Filtre automatiquement les serveurs hors ligne
-- Affiche seulement les serveurs accessibles dans l'interface TUI
-- Améliore les performances en évitant les timeouts pendant les transferts
-
-## Interface utilisateur hiérarchique
-
-### Principe
-
-L'interface organise vos serveurs en arbre hiérarchique :
-- **Environnements** (Production, Staging, Development) - Filtrable avec `--env`
-- **Régions** (Region-A, Region-B, Local, etc.) - Filtrable avec `--region`
-- **Types de serveurs** (Public, Private, Services, etc.) - Filtrable avec `--type`
-- **Serveurs** individuels avec leurs alias SSH
-
-### Navigation dans l'interface
-
-#### Écran de sélection des fichiers
-- **↑↓** : Naviguer dans la liste des fichiers/dossiers
-- **Espace** : Sélectionner/désélectionner un fichier
-- **Entrée** : Entrer dans un dossier ou remonter au parent
-- **h** : Aller au répertoire home
-- **a** : Sélectionner tous les fichiers visibles
-- **c** : Vider la sélection
-- **Tab** : Passer à l'écran suivant (sélection des serveurs)
-- **q** : Quitter l'application
-
-#### Écran de sélection des serveurs
-- **↑↓** : Naviguer dans l'arbre hiérarchique
-- **→** ou **Entrée** : Déplier un nœud / Sélectionner un serveur
-- **←** : Réduire un nœud ou remonter au parent
-- **Espace** : Sélectionner/désélectionner un serveur
-- **/** : Activer le mode recherche
-- **a** : Sélectionner tous les serveurs visibles
-- **c** : Vider la sélection de serveurs
-- **Tab** : Passer à l'écran suivant (destination)
-
-#### Mode recherche
-- **Caractères** : Taper pour filtrer en temps réel
-- **Backspace** : Effacer un caractère
-- **Entrée** : Valider et sortir du mode recherche
-- **Échap** : Annuler la recherche
-
-#### Écran de destination
-- **Caractères** : Taper le chemin de destination
-- **Entrée** : Valider et passer au téléversement
-- **Échap** : Revenir à l'écran précédent
-
-#### Écran de progression
-- **q** : Quitter après la fin des transferts
-- **p** : Mettre en pause/reprendre (si supporté)
-
-## Modes d'utilisation
-
-### 1. Mode interface complète (recommandé)
-
-Lancez l'application sans arguments pour accéder à l'interface complète :
-
-```bash
-xsshend
-```
-
-Cette interface vous guide à travers toutes les étapes :
-1. Sélection des fichiers
-2. Sélection des serveurs (interface hiérarchique)
-3. Choix de la destination
-4. Téléversement avec barre de progression
-
-### 2. Mode interactif avec fichiers pré-sélectionnés
-
-```bash
-xsshend --interactive file1.txt file2.txt
-```
-
-ou
-
-```bash
-xsshend upload file1.txt file2.txt --interactive
-```
-
-Les fichiers sont pré-sélectionnés, vous n'avez qu'à choisir les serveurs et la destination.
-
-### 3. Mode ligne de commande avec filtres
-
-```bash
-# Téléverser vers tous les serveurs de production
-xsshend upload file.txt --env Production --dest /opt/app/
-
-# Téléverser vers une région spécifique
-xsshend upload *.log --env Staging --region Region-A --dest /var/log/
-
-# Téléverser vers un type de serveurs
-xsshend upload config.json --env Production --type Public --dest /etc/app/
-```
-
-### 4. Mode simulation (dry-run)
-
-```bash
-xsshend upload file.txt --env Production --dry-run
-```
-
-Simule le transfert sans effectuer de connexions réelles.
-
-## Configuration des serveurs
-
-Votre fichier de configuration se trouve dans `~/.ssh/hosts.json`. Voici un exemple de structure :
+Le fichier `~/.ssh/hosts.json` contient la configuration :
 
 ```json
 {
@@ -244,7 +67,7 @@ Votre fichier de configuration se trouve dans `~/.ssh/hosts.json`. Voici un exem
           "env": "PROD"
         },
         "API_SERVER_01": {
-          "alias": "api01@prod-api-01.example.com", 
+          "alias": "api01@prod-api-01.example.com",
           "env": "PROD"
         }
       },
@@ -265,93 +88,324 @@ Votre fichier de configuration se trouve dans `~/.ssh/hosts.json`. Voici un exem
         }
       }
     }
+  },
+  "Development": {
+    "Local": {
+      "Services": {
+        "DEV_DATABASE": {
+          "alias": "dev@dev-db.local.example.com",
+          "env": "DEV"
+        }
+      }
+    }
   }
 }
 ```
 
-## Liste des serveurs disponibles
+## 🎮 Utilisation CLI
 
+### Commandes principales
+
+#### Initialisation
 ```bash
-# Lister tous les serveurs
-xsshend list
-
-# Filtrer par environnement
-xsshend list --env Production
+xsshend init           # Configuration assistée
+xsshend init --force   # Réinitialisation complète
 ```
 
-## Conseils d'utilisation
+#### Liste des serveurs
+```bash
+xsshend list           # Affichage hiérarchique avec filtres CLI
+xsshend --list         # Forme courte
+```
 
-### Efficacité
-- Utilisez la recherche (`/`) pour filtrer rapidement les serveurs dans les grandes infrastructures
-- Utilisez `a` pour sélectionner tous les serveurs d'un environnement après filtrage
-- Organisez vos serveurs par environnement → région → type pour une navigation optimale
+#### Téléversement de fichiers
+```bash
+xsshend upload <FILES>... [OPTIONS]
+```
+
+### Options de filtrage
+
+#### Par environnement
+```bash
+xsshend upload config.json --env Production
+xsshend upload app.jar --env Staging
+xsshend upload debug.log --env Development
+```
+
+#### Par région
+```bash
+xsshend upload regional-config.json --region Region-A
+xsshend upload backup.tar --region Region-B
+```
+
+#### Par type de serveur
+```bash
+xsshend upload public-config.json --type Public
+xsshend upload db-script.sql --type Private
+```
+
+#### Filtrage combiné
+```bash
+# Environnement + Région
+xsshend upload config.json --env Production --region Region-A
+
+# Environnement + Type
+xsshend upload app.war --env Production --type Public
+
+# Région + Type
+xsshend upload local-config.json --region Region-A --type Private
+
+# Tous les filtres
+xsshend upload deploy.sh --env Production --region Region-A --type Public
+```
+
+### Gestion des destinations
+
+```bash
+# Destination par défaut (/tmp/)
+xsshend upload file.txt --env Production
+
+# Destination personnalisée
+xsshend upload app.war --env Production --dest /opt/tomcat/webapps/
+xsshend upload config.json --env Staging --dest /etc/myapp/
+xsshend upload logs/ --env Development --dest /var/log/myapp/
+```
+
+### Mode simulation (dry-run)
+
+```bash
+# Simulation complète sans transfert réel
+xsshend upload deploy.sh --env Production --dry-run
+
+# Vérification des serveurs ciblés
+xsshend upload app.jar --env Production --region Region-A --dry-run
+
+# Test avec filtrage complexe
+xsshend upload config.json --env Production --type Public --dry-run
+```
+
+## 📊 Interface de progression
+
+### Affichage en temps réel
+
+Les transferts montrent une progression détaillée :
+
+```
+🚀 Début du téléversement: 1 fichier(s) vers 3 serveur(s)
+📂 Destination: /opt/uploads/
+🎯 Serveurs ciblés:
+   • Production:Region-A:Public:WEB_SERVER_01 → web01@prod-web-01.example.com (PROD)
+   • Production:Region-A:Public:API_SERVER_01 → api01@prod-api-01.example.com (PROD)
+   • Production:Region-A:Private:DATABASE_01 → db01@prod-db-01.example.com (PROD)
+
+📤 Téléversement de ./myapp.jar en cours...
+
+web01@prod-web-01... [████████████████████████████████] 2.3MB/2.3MB ✅
+api01@prod-api-01... [██████████████████              ] 1.5MB/2.3MB ⏳
+db01@prod-db-01..... [████████████████████████████     ] 2.1MB/2.3MB ⏳
+
+✅ Téléversement terminé avec succès!
+📊 3 serveur(s) - 0 échec(s)
+```
+
+### Gestion des erreurs
+
+En cas d'erreur, xsshend affiche des détails précis :
+
+```
+❌ Échec de connexion: WEB_SERVER_02
+   Erreur: Connection refused (port 22)
+   Conseil: Vérifier que le serveur est accessible
+
+✅ Téléversement partiel terminé
+📊 2/3 serveur(s) réussis - 1 échec(s)
+```
+
+## 🔑 Gestion des clés SSH
+
+### Découverte automatique
+
+xsshend détecte automatiquement les clés SSH :
+
+- **Ed25519** : `~/.ssh/id_ed25519` (priorité 1)
+- **RSA** : `~/.ssh/id_rsa` (priorité 2)
+- **ECDSA** : `~/.ssh/id_ecdsa` (priorité 3)
+- **DSA** : `~/.ssh/id_dsa` (priorité 4)
+
+### Intégration ssh-agent
+
+Si aucune clé n'est trouvée ou accessible, xsshend utilise ssh-agent :
+
+```bash
+# Vérifier les clés chargées
+ssh-add -l
+
+# Ajouter une clé
+ssh-add ~/.ssh/id_ed25519
+
+# Démarrer ssh-agent si nécessaire
+eval $(ssh-agent)
+```
+
+## 📝 Exemples d'utilisation
+
+### Déploiement d'application
+
+```bash
+# Déploiement complet en production
+xsshend upload myapp.war --env Production --dest /opt/tomcat/webapps/
+
+# Mise à jour de configuration
+xsshend upload application.properties --env Production --dest /etc/myapp/
+
+# Déploiement sur serveurs publics seulement
+xsshend upload static-files/ --env Production --type Public --dest /var/www/
+```
+
+### Gestion par environnement
+
+```bash
+# Configuration de développement
+xsshend upload dev-config.json --env Development
+
+# Test en staging
+xsshend upload app-v2.jar --env Staging --dry-run
+
+# Déploiement production avec validation
+xsshend upload production-app.war --env Production --dry-run
+xsshend upload production-app.war --env Production  # Si OK
+```
+
+### Maintenance et logs
+
+```bash
+# Copie de logs pour analyse
+xsshend upload analyze-script.py --env Production --type Private
+
+# Sauvegarde de configuration
+xsshend upload backup-script.sh --env Production --region Region-A
+
+# Mise à jour de sécurité
+xsshend upload security-patch.sh --env Production --dry-run  # Test
+xsshend upload security-patch.sh --env Production          # Application
+```
+
+### Multi-fichiers et répertoires
+
+```bash
+# Plusieurs fichiers
+xsshend upload config.json app.jar deploy.sh --env Production
+
+# Contenu d'un répertoire
+xsshend upload static-files/ --env Production --type Public
+
+# Mix fichiers et répertoires
+xsshend upload app.war config/ scripts/ --env Staging
+```
+
+## 🔍 Commandes de diagnostic
+
+### Liste détaillée des serveurs
+
+```bash
+# Vue complète avec filtres CLI
+xsshend list
+```
+
+Sortie exemple :
+```
+🔍 Liste des cibles SSH disponibles:
+
+📁 Production (--env Production)
+  📂 Region-A (--region Region-A)
+    📂 Public (--type Public)
+      🖥️  WEB_SERVER_01 → web01@prod-web-01.example.com (PROD)
+      🖥️  API_SERVER_01 → api01@prod-api-01.example.com (PROD)
+    📂 Private (--type Private)
+      🗄️  DATABASE_01 → db01@prod-db-01.example.com (PROD)
+
+📁 Staging (--env Staging)
+  📂 Region-A (--region Region-A)
+    📂 Public (--type Public)
+      🖥️  STAGE_WEB_01 → web01@stage-web-01.example.com (STAGE)
+
+📊 Total: 4 cibles disponibles
+
+💡 Exemples d'utilisation:
+   xsshend upload --env Production file.txt
+   xsshend upload --env Staging --region Region-A file.txt
+   xsshend upload --region Region-A --type Public file.txt
+```
+
+### Validation de configuration
+
+```bash
+# Test avec dry-run pour valider la configuration
+xsshend upload test.txt --env Production --dry-run
+
+# Test sur un serveur spécifique avec SSH manuel
+ssh web01@prod-web-01.example.com "echo 'Test connection OK'"
+```
+
+## 🛠️ Conseils et bonnes pratiques
+
+### Organisation des serveurs
+
+1. **Environnements** : Production, Staging, Development, Testing
+2. **Régions** : Region-A, Region-B, US-East, EU-West...
+3. **Types** : Public, Private, Database, Cache, Load-Balancer
+
+### Workflow recommandé
+
+1. **Test** : Toujours utiliser `--dry-run` d'abord
+2. **Staging** : Tester sur environnement de staging
+3. **Production** : Déployer par étapes (région par région)
 
 ### Sécurité
-- Le fichier `hosts.json` peut contenir des informations sensibles, gardez-le sécurisé
-- Testez toujours sur l'environnement de staging avant la production
-- Utilisez le mode `--dry-run` pour vérifier vos sélections
 
-### Productivité
-- Créez des alias dans votre shell pour les commandes fréquentes
-- Pré-sélectionnez les fichiers depuis la ligne de commande quand vous les connaissez
-- Utilisez l'interface hiérarchique pour explorer et découvrir votre infrastructure
+- Utiliser des clés SSH Ed25519 de préférence
+- Éviter les mots de passe, privilégier ssh-agent
+- Valider les permissions des fichiers de configuration
 
-## Gestion robuste des erreurs et timeouts
+### Performance
 
-### Serveurs déconnectés
+- Grouper les fichiers pour réduire les connexions SSH
+- Utiliser le mode dry-run pour valider avant transfert
+- Organiser la configuration pour un filtrage efficace
 
-xsshend gère gracieusement les serveurs inaccessibles ou déconnectés :
+## 🚫 Dépannage
 
-```bash
-# Vérification préalable de connectivité (recommandé pour les grandes infrastructures)
-xsshend --online-only
-
-# Cette option :
-# - Teste la connectivité SSH vers chaque serveur (timeout: 5s)
-# - Filtre automatiquement les serveurs inaccessibles 
-# - Affiche seulement les serveurs en ligne dans l'interface TUI
-# - Évite les blocages pendant les transferts
-```
-
-### Timeouts et retry automatique
-
-Les connexions SSH utilisent des timeouts configurés pour éviter les blocages :
-
-- **Timeout de connexion TCP :** 5 secondes par défaut
-- **Timeout du handshake SSH :** 5 secondes par défaut  
-- **Nombre de tentatives :** 2 tentatives maximum par serveur
-- **Délai entre tentatives :** 1 seconde
-
-### Comportement en cas d'erreur
-
-Quand un serveur devient inaccessible pendant les transferts :
-
-1. **Erreur loggée** : L'erreur est enregistrée avec détails
-2. **Continuation** : Les transferts vers les autres serveurs continuent
-3. **Résumé final** : Affichage des serveurs réussis vs échoués
-4. **Code de sortie** : Succès si au moins un serveur a réussi
-
-Exemple de sortie d'erreur gracieuse :
-```
-❌ Upload échoué vers SERVER_DOWN : Timeout de connexion TCP
-✅ Upload réussi vers SERVER_01 : 1,234,567 octets
-✅ Upload réussi vers SERVER_02 : 1,234,567 octets
-
-📊 Upload parallèle terminé : 2/3 serveurs réussis
-⚠️ Serveurs échoués : SERVER_DOWN
-```
-
-### Debug et diagnostic
-
-Pour diagnostiquer les problèmes de connexion :
+### Problèmes de connexion SSH
 
 ```bash
-# Mode debug complet
-RUST_LOG=debug xsshend upload --env Production file.txt
+# Test manuel de connexion
+ssh -v web01@prod-web-01.example.com
 
-# Test manuel de connectivité SSH
-ssh -o ConnectTimeout=5 -o BatchMode=yes user@server.example.com exit
+# Vérification des clés
+ssh-add -l
 
-# Vérifier la configuration SSH locale
-ssh -v user@server.example.com
+# Ajout de clé si nécessaire
+ssh-add ~/.ssh/id_ed25519
+```
+
+### Configuration
+
+```bash
+# Réinitialiser la configuration
+xsshend init --force
+
+# Vérifier les permissions .ssh
+ls -la ~/.ssh/
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_*
+```
+
+### Logs et debug
+
+```bash
+# Mode verbeux
+RUST_LOG=debug xsshend upload file.txt --env Production
+
+# Logs très détaillés
+RUST_LOG=trace xsshend upload file.txt --env Production
 ```
