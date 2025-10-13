@@ -4,6 +4,20 @@ mod cli_tests {
     use std::process::Command;
     use tempfile::TempDir;
 
+    // Helper pour lire la version depuis Cargo.toml
+    fn get_cargo_version() -> String {
+        let cargo_toml = fs::read_to_string("./Cargo.toml").expect("Failed to read Cargo.toml");
+        for line in cargo_toml.lines() {
+            if line.starts_with("version = ") {
+                return line
+                    .trim_start_matches("version = ")
+                    .trim_matches('"')
+                    .to_string();
+            }
+        }
+        panic!("Version not found in Cargo.toml");
+    }
+
     // Helper pour exécuter xsshend avec des arguments
     fn run_xsshend_with_args(args: &[&str]) -> std::process::Output {
         Command::new("./target/debug/xsshend")
@@ -37,7 +51,8 @@ mod cli_tests {
 
         assert!(output.status.success());
         let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("0.2.11"));
+        let expected_version = get_cargo_version();
+        assert!(stdout.contains(&expected_version));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "xsshend"
-version = "0.2.11"
+version = "0.3.0"
 edition = "2024"
 description = "Simple CLI tool for uploading files to multiple SSH servers"
 license = "MIT"
