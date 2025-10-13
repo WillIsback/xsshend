@@ -2,10 +2,10 @@ name: Tests and Quality Checks
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:  # Allow manual trigger
+    branches: [main]
+  workflow_dispatch: # Allow manual trigger
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,50 +16,50 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        toolchain: stable
-        components: rustfmt, clippy
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
 
-    - name: Cache Cargo dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    # Step 1: Format check
-    - name: Check code formatting
-      run: cargo fmt --all -- --check
+      # Step 1: Format check
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
 
-    # Step 2: Lint with Clippy
-    - name: Run Clippy linting
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      # Step 2: Lint with Clippy
+      - name: Run Clippy linting
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-    # Step 3: Run tests
-    - name: Run tests
-      run: cargo test --verbose
+      # Step 3: Run tests
+      - name: Run tests
+        run: cargo test --verbose
 
-    # Step 4: Run benchmarks (optional, non-blocking)
-    - name: Run benchmarks
-      run: cargo bench --verbose || echo "Benchmarks completed with warnings"
-      continue-on-error: true
+      # Step 4: Run benchmarks (optional, non-blocking)
+      - name: Run benchmarks
+        run: cargo bench --verbose || echo "Benchmarks completed with warnings"
+        continue-on-error: true
 
-    # Step 5: Check documentation
-    - name: Check documentation
-      run: cargo doc --no-deps --document-private-items
-      env:
-        RUSTDOCFLAGS: "-D warnings"
+      # Step 5: Check documentation
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
 
   # Additional job for different Rust versions (optional)
   test-versions:
@@ -70,29 +70,29 @@ jobs:
         rust: [stable, beta]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain ${{ matrix.rust }}
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust }}
+      - name: Install Rust toolchain ${{ matrix.rust }}
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
 
-    - name: Cache Cargo dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ matrix.rust }}-cargo-
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.rust }}-cargo-
 
-    - name: Run tests on ${{ matrix.rust }}
-      run: cargo test --verbose
+      - name: Run tests on ${{ matrix.rust }}
+        run: cargo test --verbose
 
   # Security audit job
   security-audit:
@@ -100,19 +100,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        toolchain: stable
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
-    - name: Install cargo-audit
-      run: cargo install cargo-audit
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
 
-    - name: Run security audit
-      run: cargo audit
+      - name: Run security audit
+        run: cargo audit
 
   # Build test for different platforms
   build-test:
@@ -123,44 +123,53 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install OpenSSL (Windows)
-      if: matrix.os == 'windows-latest'
-      shell: bash
-      run: |
-        choco install openssl
+      - name: Install OpenSSL on Windows (preferred)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # Use Chocolatey to install OpenSSL (non-interactive). This installs to C:\Program Files\OpenSSL-Win64 on modern runners.
+          choco install -y openssl
+          # Export environment variables for the runner so openssl-sys links against the system OpenSSL
+          Write-Output "OPENSSL_DIR=C:/Program Files/OpenSSL-Win64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL-Win64/lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Output "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL-Win64/include" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-    - name: Set OpenSSL environment variables (Windows)
-      if: matrix.os == 'windows-latest'
-      shell: bash
-      run: |
-        echo "OPENSSL_DIR=C:/Program Files/OpenSSL-Win64" >> $GITHUB_ENV
-        echo "OPENSSL_LIB_DIR=C:/Program Files/OpenSSL-Win64/lib" >> $GITHUB_ENV
-        echo "OPENSSL_INCLUDE_DIR=C:/Program Files/OpenSSL-Win64/include" >> $GITHUB_ENV
+      - name: "Fallback: ensure Perl module for OpenSSL build (Windows)"
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          # If the system OpenSSL is not available or linking fails, the OpenSSL build scripts need Perl modules.
+          # Install Strawberry Perl (includes cpan) and then install Locale::Maketext::Simple via cpan.
+          choco install -y strawberryperl
+          # Add cpan to PATH for the current session (Strawberry Perl typically installs to C:\\Strawberry)
+          $env:PATH = "C:\\Strawberry\\perl\\bin;" + $env:PATH
+          # Install the Perl module required by OpenSSL's Configure scripts
+          cpan Locale::Maketext::Simple || Write-Output "cpan install Locale::Maketext::Simple may have failed; continuing and hoping system OpenSSL is used"
 
-    - name: Install Rust toolchain
-      uses: actions-rust-lang/setup-rust-toolchain@v1
-      with:
-        toolchain: stable
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
-    - name: Cache Cargo dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    - name: Build project
-      run: cargo build --verbose --release
+      - name: Build project
+        run: cargo build --verbose --release
 
-    - name: Quick smoke test
-      run: cargo run -- --help
-      shell: bash
+      - name: Quick smoke test
+        run: cargo run -- --help
+        shell: bash
