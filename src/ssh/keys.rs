@@ -247,6 +247,11 @@ impl SshKeyManager {
     }
 
     /// Sélectionne automatiquement la meilleure clé disponible (non-interactive)
+    ///
+    /// ⚠️ Note v0.3.4: Cette méthode n'est plus utilisée dans l'authentification automatique.
+    /// Le programme essaie maintenant TOUTES les clés (comme SSH natif) via `get_all_keys()`.
+    /// Cette fonction est conservée pour usage futur (CLI options, mode interactif, tests).
+    #[allow(dead_code)]
     pub fn select_key_auto(&self) -> Option<&SshKey> {
         if self.keys.is_empty() {
             return None;
@@ -264,6 +269,13 @@ impl SshKeyManager {
     }
 
     /// Sélectionne automatiquement la "meilleure" clé disponible
+    ///
+    /// Ordre de priorité: Ed25519 > RSA > ECDSA > Autres
+    ///
+    /// ⚠️ Note v0.3.4: Cette méthode n'est plus utilisée dans l'authentification automatique.
+    /// Le programme essaie maintenant TOUTES les clés (comme SSH natif) via `get_all_keys()`.
+    /// Cette fonction est conservée pour usage futur (CLI options, mode interactif, tests).
+    #[allow(dead_code)]
     pub fn select_best_key(&self) -> Option<&SshKey> {
         if self.keys.is_empty() {
             return None;
