@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     env_logger::init();
 
     let app = Command::new("xsshend")
-        .version("0.4.0")
+        .version("0.3.6")
         .about("Outil Rust de téléversement multi-SSH (CLI uniquement)")
         .after_help(
             "EXEMPLES D'UTILISATION:\n\n\
