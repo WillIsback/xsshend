@@ -28,10 +28,17 @@ impl SshClient {
 
     /// Se connecter au serveur SSH avec timeout
     pub fn connect_with_timeout(&mut self, timeout: Duration) -> Result<()> {
-        // Établir la connexion TCP
-        let tcp =
-            TcpStream::connect_timeout(&format!("{}:22", self.host).parse().unwrap(), timeout)
-                .with_context(|| format!("Impossible de se connecter à {}:22", self.host))?;
+        use std::net::ToSocketAddrs;
+
+        // Résoudre le hostname et établir la connexion TCP
+        let addr = format!("{}:22", self.host)
+            .to_socket_addrs()
+            .with_context(|| format!("Impossible de résoudre l'adresse {}", self.host))?
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Aucune adresse IP trouvée pour {}", self.host))?;
+
+        let tcp = TcpStream::connect_timeout(&addr, timeout)
+            .with_context(|| format!("Impossible de se connecter à {}:22 ({})", self.host, addr))?;
 
         tcp.set_read_timeout(Some(timeout))?;
         tcp.set_write_timeout(Some(timeout))?;

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.2] - 2025-10-17
+
+### Corrigé
+
+- **🐛 Résolution DNS** : Correction du crash lors de la connexion SSH avec des hostnames au lieu d'adresses IP
+  - Erreur `AddrParseError(Socket)` corrigée en utilisant `ToSocketAddrs` pour résoudre les hostnames
+  - Meilleure gestion des erreurs avec messages explicites lors de la résolution d'adresse
+  - Support complet des FQDN (Fully Qualified Domain Names)
+
 ## [0.3.1] - 2025-10-17
 
 ### Corrigé
