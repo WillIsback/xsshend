@@ -65,25 +65,53 @@ impl SshClient {
         Ok(())
     }
 
-    /// Authentification SSH - laisse SSH gérer automatiquement
+    /// Authentification SSH - essaie toutes les méthodes disponibles
     fn authenticate(&self, session: &mut Session) -> Result<()> {
-        // Essayer d'abord ssh-agent
+        // Essayer d'abord ssh-agent (idéal car il gère toutes les clés)
         if self.try_ssh_agent_auth(session)? {
             return Ok(());
         }
 
-        // Puis essayer les clés disponibles automatiquement
+        // Si ssh-agent échoue, essayer toutes les clés disponibles
+        log::debug!("ssh-agent non disponible, essai avec les clés locales");
+
         if let Ok(key_manager) = SshKeyManager::new() {
-            if let Some(key) = key_manager.select_key_auto() {
-                self.authenticate_with_key(session, key, None)?;
-            } else {
+            let keys = key_manager.get_all_keys();
+
+            if keys.is_empty() {
                 anyhow::bail!("Aucune clé SSH trouvée et ssh-agent non disponible");
+            }
+
+            // Essayer chaque clé jusqu'à ce qu'une fonctionne
+            let mut last_error = None;
+            for key in keys {
+                log::debug!("Tentative d'authentification avec la clé: {}", key.name);
+
+                match self.authenticate_with_key(session, key, None) {
+                    Ok(()) => {
+                        log::info!("✅ Authentification réussie avec la clé: {}", key.name);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        log::debug!("❌ Échec avec la clé {}: {}", key.name, e);
+                        last_error = Some(e);
+                        // Continuer avec la clé suivante
+                    }
+                }
+            }
+
+            // Aucune clé n'a fonctionné
+            if let Some(err) = last_error {
+                anyhow::bail!(
+                    "Authentification échouée avec toutes les clés disponibles. Dernière erreur: {}",
+                    err
+                );
+            } else {
+                anyhow::bail!("Aucune clé SSH n'a fonctionné");
             }
         } else {
             anyhow::bail!("Impossible d'accéder aux clés SSH et ssh-agent non disponible");
         }
-
-        Ok(())
     }
 
     /// Essayer l'authentification via ssh-agent

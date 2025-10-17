@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.4] - 2025-10-17
+
+### Corrigé
+
+- **🔐 Authentification SSH multi-clés** : Correction majeure du mécanisme d'authentification
+  - Le programme essaie maintenant **TOUTES** les clés SSH disponibles, comme SSH natif
+  - Auparavant, une seule clé était essayée (la "meilleure" selon priorité Ed25519 > RSA > ECDSA)
+  - Maintenant, si une clé échoue, le programme tente automatiquement les autres clés disponibles
+  - Compatible avec les serveurs qui n'acceptent que certains types de clés (RSA uniquement, etc.)
+  - Logs détaillés indiquant quelle clé a réussi l'authentification
+  - Fallback automatique en cas d'échec d'une clé
+
+### Détails techniques
+
+- Remplacement de `select_key_auto()` par `get_all_keys()` dans la logique d'authentification
+- Boucle d'essai sur toutes les clés disponibles jusqu'à succès
+- Conservation de la priorité ssh-agent (toutes les clés sont déjà gérées par l'agent)
+- Meilleure compatibilité avec les infrastructures SSH variées
+
 ## [0.3.3] - 2025-10-17
 
 ### Amélioré

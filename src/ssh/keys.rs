@@ -288,6 +288,12 @@ impl SshKeyManager {
         );
         Some(best_key)
     }
+
+    /// Retourne toutes les clés disponibles
+    /// Cette méthode est utilisée pour essayer plusieurs clés en cas d'échec d'authentification
+    pub fn get_all_keys(&self) -> &[SshKey] {
+        &self.keys
+    }
 }
 
 #[cfg(test)]
