@@ -9,10 +9,41 @@
 
 ## 🔧 Installation
 
+### Pré-requis
+
+- Rust 1.70+ (recommandé: version stable la plus récente)
+- OpenSSL (optionnel, pour accélérer la compilation)
+
 ### Via Cargo (recommandé)
 
 ```bash
 cargo install xsshend
+```
+
+#### 🚀 Accélérer l'installation
+
+L'installation peut être longue car elle compile OpenSSL depuis les sources par défaut. Pour accélérer :
+
+**Option 1 : Utiliser OpenSSL du système (Linux/macOS)**
+```bash
+# Installer OpenSSL si nécessaire
+# Ubuntu/Debian:
+sudo apt-get install libssl-dev pkg-config
+
+# Fedora/RHEL:
+sudo dnf install openssl-devel
+
+# macOS:
+brew install openssl pkg-config
+
+# Installer xsshend (utilise OpenSSL système automatiquement)
+cargo install xsshend
+```
+
+**Option 2 : Compilation parallèle**
+```bash
+# Utiliser tous les cœurs CPU disponibles
+cargo install xsshend -j $(nproc)
 ```
 
 ### Depuis les sources

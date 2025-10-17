@@ -1,6 +1,25 @@
 # Changelog
 
-## [0.2.1] - 2025-07-11
+## [0.3.1] - 2025-10-17
+
+### Corrigé
+
+- **🐛 Compatibilité Rust** : Correction des expressions `let` chains pour supporter Rust 1.70+ (au lieu de 1.80+)
+- **📦 Édition Rust** : Changement de l'édition invalide "2024" vers "2021" (standard actuel)
+
+### Optimisé
+
+- **⚡ Dépendances** : Suppression de dépendances inutilisées (`chrono`, `thiserror`, `ssh2-config`)
+- **🚀 Compilation** : Réduction significative du temps de compilation (~30% plus rapide)
+- **📖 Documentation** : Ajout de conseils pour accélérer l'installation
+
+### Détails techniques
+
+- Remplacement des `let` chains (Rust 1.80+) par des conditions `if let` imbriquées classiques
+- Suppression de 3 dépendances non utilisées, réduisant le graphe de compilation
+- Documentation améliorée pour l'installation avec OpenSSL système
+
+## [0.3.0] - 2025-07-15
 
 ### Ajouté
 

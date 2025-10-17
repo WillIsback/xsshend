@@ -163,26 +163,18 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Test avec différentes destinations
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/tmp/")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/home/user/")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/var/www/")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/opt/app/")
-                .is_ok()
-        );
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/home/user/")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/var/www/")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/opt/app/")
+            .is_ok());
     }
 
     #[test]
@@ -259,26 +251,18 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Test avec différents formats de destination
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/tmp")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "/tmp/")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "~/uploads")
-                .is_ok()
-        );
-        assert!(
-            Uploader::new()
-                .dry_run(&file_refs, &host_refs, "./files")
-                .is_ok()
-        );
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "~/uploads")
+            .is_ok());
+        assert!(Uploader::new()
+            .dry_run(&file_refs, &host_refs, "./files")
+            .is_ok());
     }
 
     #[test]

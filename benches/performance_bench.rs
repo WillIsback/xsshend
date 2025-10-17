@@ -1,5 +1,5 @@
 // Benchmarks de performance pour xsshend
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::fs;
 use tempfile::TempDir;
 use xsshend::config::{HostEntry, HostsConfig};

@@ -80,26 +80,26 @@ impl HostsConfig {
 
         for (env_name, regions) in &self.environments {
             // Filtrer par environnement
-            if let Some(env) = env_filter
-                && env_name != env
-            {
-                continue;
+            if let Some(env) = env_filter {
+                if env_name != env {
+                    continue;
+                }
             }
 
             for (region_name, server_types) in regions {
                 // Filtrer par région
-                if let Some(region) = region_filter
-                    && region_name != region
-                {
-                    continue;
+                if let Some(region) = region_filter {
+                    if region_name != region {
+                        continue;
+                    }
                 }
 
                 for (type_name, hosts) in server_types {
                     // Filtrer par type
-                    if let Some(server_type) = type_filter
-                        && type_name != server_type
-                    {
-                        continue;
+                    if let Some(server_type) = type_filter {
+                        if type_name != server_type {
+                            continue;
+                        }
                     }
 
                     for (host_name, host_entry) in hosts {

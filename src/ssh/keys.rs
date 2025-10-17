@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -217,20 +217,23 @@ impl SshKeyManager {
                     }
 
                     // Essayer de lire le fichier pour voir si c'est une clé privée
-                    if let Ok(content) = fs::read_to_string(&path)
-                        && content.contains("PRIVATE KEY")
-                    {
-                        match SshKey::new(filename.to_string(), path.clone()) {
-                            Ok(key) => {
-                                log::debug!("🔑 Clé additionnelle trouvée: {}", key.description());
-                                discovered_keys.push(key);
-                            }
-                            Err(e) => {
-                                log::warn!(
-                                    "⚠️ Erreur lors de l'analyse de la clé {}: {}",
-                                    filename,
-                                    e
-                                );
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        if content.contains("PRIVATE KEY") {
+                            match SshKey::new(filename.to_string(), path.clone()) {
+                                Ok(key) => {
+                                    log::debug!(
+                                        "🔑 Clé additionnelle trouvée: {}",
+                                        key.description()
+                                    );
+                                    discovered_keys.push(key);
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "⚠️ Erreur lors de l'analyse de la clé {}: {}",
+                                        filename,
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
