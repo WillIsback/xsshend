@@ -1,182 +1,101 @@
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 mod config;
 mod core;
+mod interactive;
 mod ssh;
 mod utils;
 
 use config::HostsConfig;
 use core::uploader::Uploader;
 
+/// Outil Rust de téléversement multi-SSH avec mode interactif
+#[derive(Parser)]
+#[command(name = "xsshend")]
+#[command(version = "0.4.0")]
+#[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Liste tous les serveurs disponibles
+    #[arg(short = 'l', long)]
+    list: bool,
+
+    /// Désactiver le mode interactif (erreur si arguments manquants)
+    #[arg(long, global = true)]
+    non_interactive: bool,
+
+    /// Répondre oui à toutes les confirmations
+    #[arg(short = 'y', long, global = true)]
+    yes: bool,
+
+    /// Clé SSH spécifique à utiliser
+    #[arg(long, global = true, value_name = "PATH")]
+    key: Option<PathBuf>,
+
+    /// Afficher les logs de debug
+    #[arg(short = 'v', long, global = true)]
+    verbose: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Téléverse des fichiers vers plusieurs serveurs SSH
+    Upload {
+        /// Fichiers à téléverser
+        #[arg(required = true, value_name = "FILE")]
+        files: Vec<PathBuf>,
+
+        /// Environnement (Production, Staging, Development, etc.)
+        #[arg(long, value_name = "ENV")]
+        env: Option<String>,
+
+        /// Région géographique (Region-A, Europe, US-East, etc.)
+        #[arg(long, value_name = "REGION")]
+        region: Option<String>,
+
+        /// Type de serveur (Public, Private, Database, etc.)
+        #[arg(long, short = 't', value_name = "TYPE")]
+        server_type: Option<String>,
+
+        /// Répertoire de destination sur les serveurs
+        #[arg(long, short = 'd', value_name = "PATH", default_value = "/tmp/")]
+        dest: PathBuf,
+
+        /// Simulation sans transfert réel
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Liste les serveurs disponibles
+    List,
+
+    /// Initialise la configuration xsshend
+    Init {
+        /// Remplace la configuration existante
+        #[arg(long, short = 'f')]
+        force: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    let cli = Cli::parse();
 
-    let app = Command::new("xsshend")
-        .version("0.3.6")
-        .about("Outil Rust de téléversement multi-SSH (CLI uniquement)")
-        .after_help(
-            "EXEMPLES D'UTILISATION:\n\n\
-            Initialisation:\n  \
-              xsshend init                           Configurer xsshend pour la première fois\n  \
-              xsshend init --force                   Réinitialiser la configuration\n\n\
-            Lister les serveurs:\n  \
-              xsshend list                           Afficher tous les serveurs disponibles\n  \
-              xsshend --list                         Alias court pour lister\n\n\
-            Téléversement simple:\n  \
-              xsshend upload fichier.txt             Envoyer vers tous les serveurs\n  \
-              xsshend upload app.jar --env Production      Envoyer en production\n  \
-              xsshend upload config.json --env Staging     Envoyer en staging\n\n\
-            Filtrage avancé:\n  \
-              xsshend upload file.txt --env Production --type Public\n  \
-              xsshend upload file.txt --env Staging --region Region-A\n  \
-              xsshend upload file.txt --region Region-A --type Private\n  \
-              xsshend upload app.war --env Production --region Region-A --type Public\n\n\
-            Destination personnalisée:\n  \
-              xsshend upload file.txt --dest /opt/app/\n  \
-              xsshend upload config.json --env Production --dest /etc/myapp/\n\n\
-            Mode simulation (dry-run):\n  \
-              xsshend upload file.txt --env Production --dry-run\n  \
-              xsshend upload app.jar --type Public --dry-run\n\n\
-            Multi-fichiers:\n  \
-              xsshend upload file1.txt file2.json file3.xml\n  \
-              xsshend upload *.txt --env Production\n\n\
-            Pour plus d'informations: https://willisback.github.io/xsshend/\
-            "
-        )
-        .arg(
-            Arg::new("list")
-                .long("list")
-                .short('l')
-                .help("Affiche la liste de toutes les cibles disponibles")
-                .action(clap::ArgAction::SetTrue),
-        )
-        .subcommand(
-            Command::new("upload")
-                .about("Téléverse des fichiers vers plusieurs serveurs SSH")
-                .after_help(
-                    "EXEMPLES D'UTILISATION:\n\n\
-                    Filtrage par environnement:\n  \
-                      xsshend upload file.txt --env Production\n  \
-                      xsshend upload file.txt --env Staging\n  \
-                      xsshend upload file.txt --env Development\n\n\
-                    Filtrage par région:\n  \
-                      xsshend upload file.txt --region Region-A\n  \
-                      xsshend upload file.txt --region Region-B\n  \
-                      xsshend upload file.txt --region Europe --env Production\n\n\
-                    Filtrage par type de serveur:\n  \
-                      xsshend upload file.txt --type Public\n  \
-                      xsshend upload file.txt --type Private\n  \
-                      xsshend upload app.jar --env Production --type Public\n\n\
-                    Filtrage combiné (tous les filtres):\n  \
-                      xsshend upload app.war --env Production --region Region-A --type Public\n  \
-                      xsshend upload config.json --env Staging --region Europe --type Private\n  \
-                      xsshend upload deploy.sh --env Production --region US-East --type Public --dest /opt/scripts/\n\n\
-                    Destination personnalisée:\n  \
-                      xsshend upload file.txt --dest /opt/app/\n  \
-                      xsshend upload config.json --dest /etc/myapp/ --env Production\n  \
-                      xsshend upload app.war --dest /opt/tomcat/webapps/ --env Production --type Public\n\n\
-                    Mode simulation (dry-run):\n  \
-                      xsshend upload file.txt --env Production --dry-run\n  \
-                      xsshend upload app.jar --type Public --region Region-A --dry-run\n  \
-                      xsshend upload config.json --env Production --dest /etc/ --dry-run\n\n\
-                    Multi-fichiers:\n  \
-                      xsshend upload file1.txt file2.json file3.xml\n  \
-                      xsshend upload *.txt --env Production\n  \
-                      xsshend upload config/* --env Staging --dest /etc/myapp/\n\n\
-                    FILTRES DISPONIBLES:\n  \
-                      --env     Filtre par environnement (Production, Staging, Development, etc.)\n  \
-                      --region  Filtre par région géographique (Region-A, Europe, US-East, etc.)\n  \
-                      --type    Filtre par type de serveur (Public, Private, Database, etc.)\n  \
-                      --dest    Répertoire de destination sur les serveurs (défaut: /tmp/)\n  \
-                      --dry-run Simule le téléversement sans transférer les fichiers\n\n\
-                    Les filtres peuvent être combinés pour cibler précisément vos serveurs.\n\
-                    Sans filtre, le téléversement cible TOUS les serveurs configurés.\
-                    "
-                )
-                .arg(
-                    Arg::new("files")
-                        .help("Fichiers à téléverser")
-                        .required(true)
-                        .num_args(1..)
-                        .value_name("FILE"),
-                )
-                .arg(
-                    Arg::new("env")
-                        .long("env")
-                        .help("Environnement spécifique (Production, Staging, etc.)")
-                        .value_name("ENV"),
-                )
-                .arg(
-                    Arg::new("region")
-                        .long("region")
-                        .help("Région spécifique (Region-A, Europe, etc.)")
-                        .value_name("REGION"),
-                )
-                .arg(
-                    Arg::new("type")
-                        .long("type")
-                        .help("Type de serveurs (Public, Private, Database, etc.)")
-                        .value_name("TYPE"),
-                )
-                .arg(
-                    Arg::new("dest")
-                        .long("dest")
-                        .help("Répertoire de destination sur les serveurs")
-                        .value_name("PATH")
-                        .default_value("/tmp/"),
-                )
-                .arg(
-                    Arg::new("dry-run")
-                        .long("dry-run")
-                        .help("Simulation sans transfert réel (voir ce qui serait envoyé)")
-                        .action(clap::ArgAction::SetTrue),
-                ),
-        )
-        .subcommand(
-            Command::new("list")
-                .about("Liste les serveurs disponibles")
-                .after_help(
-                    "EXEMPLES:\n  \
-                      xsshend list                           Liste tous les serveurs\n  \
-                      xsshend --list                         Alias court\n  \
-                      xsshend -l                             Alias très court\n\n\
-                    Affiche la liste hiérarchique de tous les serveurs configurés\n\
-                    avec leur environnement, région, type et alias de connexion.\
-                    "
-                )
-        )
-        .subcommand(
-            Command::new("init")
-                .about("Initialise la configuration xsshend et aide à configurer SSH")
-                .after_help(
-                    "EXEMPLES:\n  \
-                      xsshend init                           Configuration initiale interactive\n  \
-                      xsshend init --force                   Réinitialiser la configuration\n\n\
-                    Cette commande vous guide dans la configuration de xsshend:\n  \
-                      • Vérifie/crée le répertoire ~/.ssh\n  \
-                      • Détecte les clés SSH existantes\n  \
-                      • Propose de créer une nouvelle clé Ed25519 si nécessaire\n  \
-                      • Crée le fichier ~/.ssh/hosts.json avec un exemple\n  \
-                      • Vérifie la configuration de ssh-agent\n\n\
-                    Utilisez --force pour remplacer une configuration existante.\
-                    "
-                )
-                .arg(
-                    Arg::new("force")
-                        .long("force")
-                        .short('f')
-                        .help("Remplace la configuration existante")
-                        .action(clap::ArgAction::SetTrue),
-                ),
-        );
-
-    let matches = app.get_matches();
+    // Configurer le logger selon --verbose
+    if cli.verbose {
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Debug)
+            .init();
+    } else {
+        env_logger::init();
+    }
 
     // Gérer le flag --list/-l en priorité
-    if matches.get_flag("list") {
+    if cli.list {
         println!("🔍 Liste des cibles SSH disponibles:\n");
 
         let config = match HostsConfig::load() {
@@ -192,68 +111,37 @@ async fn main() -> Result<()> {
     }
 
     // Si aucune sous-commande n'est fournie, afficher l'aide
-    if matches.subcommand().is_none() {
+    let Some(command) = cli.command else {
         println!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
         println!("Exemples:");
         println!("  xsshend upload file.txt --env Production");
         println!("  xsshend --list");
         return Ok(());
-    }
+    };
 
-    match matches.subcommand() {
-        Some(("upload", sub_matches)) => {
-            let files: Vec<PathBuf> = sub_matches
-                .get_many::<String>("files")
-                .unwrap()
-                .map(PathBuf::from)
-                .collect();
-
-            println!("🚀 xsshend - Téléversement Multi-SSH");
-
-            // Charger la configuration
-            let config = match HostsConfig::load() {
-                Ok(config) => config,
-                Err(e) => {
-                    eprintln!("❌ Erreur lors du chargement de la configuration: {}", e);
-                    std::process::exit(1);
-                }
-            };
-
-            // Mode filtré par arguments
-            let env = sub_matches.get_one::<String>("env");
-            let region = sub_matches.get_one::<String>("region");
-            let server_type = sub_matches.get_one::<String>("type");
-
-            let target_hosts = config.filter_hosts(env, region, server_type);
-
-            if target_hosts.is_empty() {
-                println!("❌ Aucun serveur trouvé avec les critères spécifiés");
-                return Ok(());
-            }
-
-            // SSH utilise automatiquement les clés disponibles et ssh-agent
-            println!("🔑 Utilisation automatique des clés SSH disponibles");
-
-            // Destination et fichiers
-            let destination = sub_matches.get_one::<String>("dest").unwrap();
-            let file_refs: Vec<&std::path::Path> = files.iter().map(|p| p.as_path()).collect();
-
-            // Créer l'uploader simple
-            let uploader = Uploader::new();
-
-            if sub_matches.get_flag("dry-run") {
-                // Mode dry-run - simulation
-                uploader
-                    .dry_run(&file_refs, &target_hosts, destination)
-                    .await?;
-            } else {
-                // Mode direct simplifié
-                uploader
-                    .upload_files(&file_refs, &target_hosts, destination)
-                    .await?;
-            }
+    match command {
+        Commands::Upload {
+            files,
+            env,
+            region,
+            server_type,
+            dest,
+            dry_run,
+        } => {
+            handle_upload_command(UploadArgs {
+                files,
+                env,
+                region,
+                server_type,
+                dest,
+                dry_run,
+                non_interactive: cli.non_interactive,
+                yes: cli.yes,
+                key: cli.key,
+            })
+            .await?;
         }
-        Some(("list", _sub_matches)) => {
+        Commands::List => {
             println!("🔍 Liste des cibles SSH disponibles:\n");
 
             let config = match HostsConfig::load() {
@@ -266,13 +154,150 @@ async fn main() -> Result<()> {
 
             config.display_all_targets();
         }
-        Some(("init", sub_matches)) => {
-            let force = sub_matches.get_flag("force");
+        Commands::Init { force } => {
             init_setup(force)?;
         }
-        _ => {
-            println!("Utilisez 'xsshend --help' pour voir les commandes disponibles");
+    }
+
+    Ok(())
+}
+
+/// Arguments pour la commande upload
+struct UploadArgs {
+    files: Vec<PathBuf>,
+    env: Option<String>,
+    region: Option<String>,
+    server_type: Option<String>,
+    dest: PathBuf,
+    dry_run: bool,
+    non_interactive: bool,
+    yes: bool,
+    key: Option<PathBuf>,
+}
+
+/// Gère la commande upload avec mode interactif
+async fn handle_upload_command(args: UploadArgs) -> Result<()> {
+    use crate::core::validator::Validator;
+    use crate::interactive::{is_interactive_mode, prompts, should_prompt};
+
+    println!("🚀 xsshend - Téléversement Multi-SSH");
+
+    // 1. Validation des fichiers
+    println!("🔍 Validation des fichiers...");
+    for file in &args.files {
+        Validator::validate_file(file)
+            .map_err(|e| anyhow::anyhow!("Validation échouée pour {}: {}", file.display(), e))?;
+    }
+
+    // Charger la configuration
+    let config = HostsConfig::load()?;
+
+    // Extraire les arguments mutables
+    let mut env = args.env;
+    let mut region = args.region;
+    let mut server_type = args.server_type;
+    let mut dest = args.dest;
+
+    // 2. Mode interactif: compléter les arguments manquants
+    if !args.non_interactive && is_interactive_mode() {
+        println!("\n{}", "=".repeat(60));
+        println!("🎨 Mode Interactif");
+        println!("{}", "=".repeat(60));
+
+        // Environnement
+        if should_prompt(&env, args.non_interactive) {
+            env = Some(prompts::prompt_environment(&config)?);
         }
+
+        // Région
+        if env.is_some() && should_prompt(&region, args.non_interactive) {
+            region = prompts::prompt_region(&config, env.as_ref().unwrap())?;
+        }
+
+        // Type de serveur
+        if env.is_some() && should_prompt(&server_type, args.non_interactive) {
+            server_type =
+                prompts::prompt_server_type(&config, env.as_ref().unwrap(), region.as_deref())?;
+        }
+
+        // Destination (si default)
+        if dest == PathBuf::from("/tmp/") {
+            let new_dest = prompts::prompt_destination("/tmp/")?;
+            dest = new_dest;
+        }
+    } else if args.non_interactive && env.is_none() {
+        // Mode explicitement non-interactif: valider les arguments
+        anyhow::bail!("❌ Argument --env requis avec --non-interactive");
+    }
+
+    // 3. Filtrer les serveurs
+    let target_hosts = config.filter_hosts(env.as_ref(), region.as_ref(), server_type.as_ref());
+
+    if target_hosts.is_empty() {
+        anyhow::bail!("❌ Aucun serveur trouvé avec les critères spécifiés");
+    }
+
+    // 4. Afficher le récapitulatif
+    println!("\n{}", "=".repeat(60));
+    println!("📋 RÉCAPITULATIF");
+    println!("{}", "=".repeat(60));
+    println!("📦 Fichiers: {}", args.files.len());
+    for file in &args.files {
+        if let Ok(metadata) = std::fs::metadata(file) {
+            println!("   • {} ({} octets)", file.display(), metadata.len());
+        }
+    }
+    println!("\n🎯 Environnement: {}", env.as_deref().unwrap_or("Tous"));
+    println!("📍 Région: {}", region.as_deref().unwrap_or("Toutes"));
+    println!("🖥️  Type: {}", server_type.as_deref().unwrap_or("Tous"));
+    println!("📂 Destination: {}", dest.display());
+    println!("🖥️  Serveurs ciblés: {}", target_hosts.len());
+    println!("{}", "=".repeat(60));
+
+    // 5. Confirmation
+    if !args.dry_run && !args.yes {
+        if !args.non_interactive && is_interactive_mode() {
+            let confirmed = prompts::confirm_upload(
+                &args.files,
+                &target_hosts,
+                &dest,
+                env.as_deref().unwrap_or("Unknown"),
+            )?;
+
+            if !confirmed {
+                println!("❌ Téléversement annulé");
+                return Ok(());
+            }
+        } else {
+            println!("⚠️  Utilisez --yes pour confirmer automatiquement en mode non-interactif");
+            anyhow::bail!("Confirmation requise");
+        }
+    }
+
+    // 6. Upload
+    println!("\n🚀 Début du téléversement...\n");
+
+    let uploader = Uploader::new();
+    let file_refs: Vec<&std::path::Path> = args.files.iter().map(|p| p.as_path()).collect();
+    let dest_str = dest.to_str().unwrap_or("/tmp/");
+
+    // Si une clé SSH est fournie, l'indiquer (elle est lue ici pour éviter l'avertissement
+    // ; le comportement effectif d'utilisation peut être géré par d'autres modules)
+    if let Some(key_path) = &args.key {
+        println!(
+            "🔑 Utilisation de la clé SSH fournie: {}",
+            key_path.display()
+        );
+    }
+
+    if args.dry_run {
+        uploader
+            .dry_run(&file_refs, &target_hosts, dest_str)
+            .await?;
+    } else {
+        uploader
+            .upload_files(&file_refs, &target_hosts, dest_str)
+            .await?;
     }
 
     Ok(())

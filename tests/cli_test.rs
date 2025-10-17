@@ -64,10 +64,11 @@ mod cli_tests {
         assert!(stdout.contains("Téléverse des fichiers"));
         assert!(stdout.contains("--env"));
         assert!(stdout.contains("--region"));
-        assert!(stdout.contains("--type"));
+        assert!(stdout.contains("--server-type")); // Changed from --type to --server-type
         assert!(stdout.contains("--dest"));
         assert!(stdout.contains("--dry-run"));
-        // Vérifier que --ssh-key n'est plus présent
+        assert!(stdout.contains("--key")); // Now --key is present in global options
+                                           // Vérifier que --ssh-key n'est plus présent
         assert!(!stdout.contains("--ssh-key"));
     }
 
@@ -154,7 +155,7 @@ mod cli_tests {
             "Production",
             "--region",
             "Region-A",
-            "--type",
+            "--server-type", // Changed from --type to --server-type
             "Public",
             "--dry-run",
         ]);
@@ -246,9 +247,19 @@ mod cli_tests {
             "--dry-run",
         ]);
 
-        assert!(output.status.success()); // Le programme ne devrait pas crasher
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        assert!(stdout.contains("Aucun serveur trouvé") || stdout.contains("Mode dry-run"));
+        // Le programme devrait échouer car l'environnement n'existe pas ou n'a pas de serveurs
+        assert!(!output.status.success());
+        // Le message d'erreur peut être dans stdout ou stderr selon anyhow
+        let stdout = String::from_utf8(output.stdout).unwrap_or_default();
+        let stderr = String::from_utf8(output.stderr).unwrap_or_default();
+        let combined = format!("{}{}", stdout, stderr);
+        // Vérifier que l'erreur mentionne qu'aucun serveur n'a été trouvé
+        assert!(
+            combined.contains("Aucun serveur trouvé")
+                || (combined.contains("Environnement") && combined.contains("non trouvé")),
+            "Expected error message about no servers or environment not found, got: {}",
+            combined
+        );
     }
 
     #[tokio::test]

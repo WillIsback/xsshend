@@ -149,8 +149,9 @@ impl SshClient {
         session: &mut Handle<ClientHandler>,
         key: &SshKey,
     ) -> Result<()> {
-        // Charger la clé privée avec russh-keys
-        let key_pair = russh_keys::load_secret_key(&key.private_key_path, None)
+        // Charger la clé privée avec gestion de passphrase (mode non-interactif par défaut)
+        // TODO: Ajouter un paramètre pour activer le mode interactif si nécessaire
+        let key_pair = SshKeyManager::load_key_with_passphrase(&key.private_key_path, false)
             .context(format!("Impossible de charger la clé {}", key.name))?;
 
         // Authentification avec la clé

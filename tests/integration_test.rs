@@ -294,7 +294,7 @@ mod integration_tests {
                 "should contain WEB_01, DB_01",
             ),
             (
-                vec!["--env", "Production", "--type", "Public"],
+                vec!["--env", "Production", "--server-type", "Public"], // Changed from --type to --server-type
                 "should contain WEB_01, WEB_02",
             ),
             (
@@ -303,7 +303,7 @@ mod integration_tests {
                     "Production",
                     "--region",
                     "Region-A",
-                    "--type",
+                    "--server-type", // Changed from --type to --server-type
                     "Public",
                 ],
                 "should contain WEB_01",
