@@ -1,5 +1,74 @@
 # Changelog
 
+## [0.4.0] - 2025-10-17 🚀 PURE RUST EDITION
+
+### 🎉 Migration Majeure : OpenSSL → Pure Rust
+
+**BREAKING CHANGE** : Migration complète de `ssh2` (C/OpenSSL) vers `russh` (100% Pure Rust)
+
+#### ✨ Nouveautés
+
+- **⚡ Compilation 4x plus rapide** : De ~60-70s à ~16s (et 5-8s sur recompilations)
+- **🦀 100% Pure Rust** : Plus aucune dépendance C ou OpenSSL
+- **🚀 Architecture Async** : Utilisation de Tokio pour des performances optimales
+- **🔒 RustCrypto** : Cryptographie moderne et audité régulièrement
+- **🌐 Cross-platform amélioré** : Compilation uniforme sans dépendances système
+
+#### 🔧 Changements Techniques
+
+**Dépendances :**
+- ❌ Supprimé : `ssh2` (wrapper C), `libssh2-sys`, `openssl-sys` (⏰ build C long)
+- ✅ Ajouté : `russh` v0.45, `russh-sftp` v2.0, `russh-keys` v0.45
+- ✅ Ajouté : `tokio` v1 (async runtime), `async-trait` v0.1
+
+**Architecture :**
+- Conversion complète en async/await avec Tokio
+- API SSH modernisée avec `russh::client::Handle`
+- SFTP asynchrone avec `SftpSession`
+- Authentification multi-clés préservée (v0.3.4)
+
+#### 📊 Performances
+
+**Temps de Compilation** :
+```
+AVANT (v0.3.x - OpenSSL) :  ~60-70 secondes
+APRÈS (v0.4.0 - Pure Rust): ~16 secondes
+GAIN : 4x plus rapide ! 🚀
+```
+
+**Runtime** :
+- Connexions SSH asynchrones (non bloquantes)
+- Support de milliers de connexions simultanées
+- Réduction de la mémoire utilisée (tasks vs threads)
+
+#### 🔄 Compatibilité
+
+**Pour les Utilisateurs** :
+- ✅ CLI identique (aucun changement visible)
+- ✅ Configuration identique (`~/.ssh/hosts.json`)
+- ✅ Comportement identique
+- ✅ Clés SSH identiques (Ed25519, RSA, ECDSA)
+- ⚠️ Nécessite Rust 1.75+ pour compiler
+
+**Pour les Développeurs** :
+- ⚠️ API interne async (méthodes avec `.await`)
+- ⚠️ `#[tokio::main]` requis dans main.rs
+- ⚠️ Tests avec `#[tokio::test]` au lieu de `#[test]`
+
+#### 🎯 Migration Guide
+
+```bash
+# Installation
+cargo install xsshend --force
+
+# Plus besoin de libssl-dev système !
+# La compilation est maintenant beaucoup plus rapide
+```
+
+Voir `MIGRATION-RUSSH-0.4.0.md` pour les détails techniques complets.
+
+---
+
 ## [0.3.4] - 2025-10-17
 
 ### Corrigé

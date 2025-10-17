@@ -33,8 +33,8 @@ mod cli_tests {
         file_path
     }
 
-    #[test]
-    fn test_cli_help_command() {
+    #[tokio::test]
+    async fn test_cli_help_command() {
         let output = run_xsshend_with_args(&["--help"]);
 
         assert!(output.status.success());
@@ -45,8 +45,8 @@ mod cli_tests {
         assert!(stdout.contains("init"));
     }
 
-    #[test]
-    fn test_cli_version_command() {
+    #[tokio::test]
+    async fn test_cli_version_command() {
         let output = run_xsshend_with_args(&["--version"]);
 
         assert!(output.status.success());
@@ -55,8 +55,8 @@ mod cli_tests {
         assert!(stdout.contains(&expected_version));
     }
 
-    #[test]
-    fn test_cli_upload_help() {
+    #[tokio::test]
+    async fn test_cli_upload_help() {
         let output = run_xsshend_with_args(&["upload", "--help"]);
 
         assert!(output.status.success());
@@ -71,8 +71,8 @@ mod cli_tests {
         assert!(!stdout.contains("--ssh-key"));
     }
 
-    #[test]
-    fn test_cli_list_help() {
+    #[tokio::test]
+    async fn test_cli_list_help() {
         let output = run_xsshend_with_args(&["list", "--help"]);
 
         assert!(output.status.success());
@@ -80,8 +80,8 @@ mod cli_tests {
         assert!(stdout.contains("Liste les serveurs"));
     }
 
-    #[test]
-    fn test_cli_init_help() {
+    #[tokio::test]
+    async fn test_cli_init_help() {
         let output = run_xsshend_with_args(&["init", "--help"]);
 
         assert!(output.status.success());
@@ -90,8 +90,8 @@ mod cli_tests {
         assert!(stdout.contains("--force"));
     }
 
-    #[test]
-    fn test_cli_no_arguments() {
+    #[tokio::test]
+    async fn test_cli_no_arguments() {
         let output = run_xsshend_with_args(&[]);
 
         assert!(output.status.success());
@@ -100,8 +100,8 @@ mod cli_tests {
         assert!(stdout.contains("Exemples:"));
     }
 
-    #[test]
-    fn test_cli_upload_missing_files() {
+    #[tokio::test]
+    async fn test_cli_upload_missing_files() {
         let output = run_xsshend_with_args(&["upload"]);
 
         assert!(!output.status.success());
@@ -109,8 +109,8 @@ mod cli_tests {
         assert!(stderr.contains("required") || stderr.contains("FILE"));
     }
 
-    #[test]
-    fn test_cli_upload_dry_run() {
+    #[tokio::test]
+    async fn test_cli_upload_dry_run() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 
@@ -128,8 +128,8 @@ mod cli_tests {
         assert!(stdout.contains("Simulation terminée"));
     }
 
-    #[test]
-    fn test_cli_upload_nonexistent_file() {
+    #[tokio::test]
+    async fn test_cli_upload_nonexistent_file() {
         let output = run_xsshend_with_args(&[
             "upload",
             "/nonexistent/file.txt",
@@ -142,8 +142,8 @@ mod cli_tests {
         // Le programme devrait échouer car le fichier n'existe pas
     }
 
-    #[test]
-    fn test_cli_upload_with_filters() {
+    #[tokio::test]
+    async fn test_cli_upload_with_filters() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 
@@ -164,8 +164,8 @@ mod cli_tests {
         assert!(stdout.contains("Mode dry-run"));
     }
 
-    #[test]
-    fn test_cli_upload_custom_destination() {
+    #[tokio::test]
+    async fn test_cli_upload_custom_destination() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 
@@ -184,8 +184,8 @@ mod cli_tests {
         assert!(stdout.contains("/custom/path/"));
     }
 
-    #[test]
-    fn test_cli_upload_multiple_files() {
+    #[tokio::test]
+    async fn test_cli_upload_multiple_files() {
         let temp_dir = TempDir::new().unwrap();
         let file1 = create_test_file(&temp_dir, "file1.txt", "content 1");
         let file2 = create_test_file(&temp_dir, "file2.txt", "content 2");
@@ -205,8 +205,8 @@ mod cli_tests {
         assert!(stdout.contains("file2.txt"));
     }
 
-    #[test]
-    fn test_cli_list_command() {
+    #[tokio::test]
+    async fn test_cli_list_command() {
         let output = run_xsshend_with_args(&["list"]);
 
         assert!(output.status.success());
@@ -215,8 +215,8 @@ mod cli_tests {
         assert!(stdout.contains("Production") || stdout.contains("Development"));
     }
 
-    #[test]
-    fn test_cli_list_flag() {
+    #[tokio::test]
+    async fn test_cli_list_flag() {
         let output = run_xsshend_with_args(&["--list"]);
 
         assert!(output.status.success());
@@ -224,8 +224,8 @@ mod cli_tests {
         assert!(stdout.contains("Liste des cibles SSH"));
     }
 
-    #[test]
-    fn test_cli_invalid_command() {
+    #[tokio::test]
+    async fn test_cli_invalid_command() {
         let output = run_xsshend_with_args(&["invalid-command"]);
 
         assert!(!output.status.success());
@@ -233,8 +233,8 @@ mod cli_tests {
         assert!(stderr.contains("unrecognized subcommand") || stderr.contains("invalid"));
     }
 
-    #[test]
-    fn test_cli_upload_invalid_filter() {
+    #[tokio::test]
+    async fn test_cli_upload_invalid_filter() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 
@@ -251,8 +251,8 @@ mod cli_tests {
         assert!(stdout.contains("Aucun serveur trouvé") || stdout.contains("Mode dry-run"));
     }
 
-    #[test]
-    fn test_cli_empty_file_upload() {
+    #[tokio::test]
+    async fn test_cli_empty_file_upload() {
         let temp_dir = TempDir::new().unwrap();
         let empty_file = create_test_file(&temp_dir, "empty.txt", "");
 
@@ -269,8 +269,8 @@ mod cli_tests {
         assert!(stdout.contains("0 B")); // Fichier vide
     }
 
-    #[test]
-    fn test_cli_large_file_upload() {
+    #[tokio::test]
+    async fn test_cli_large_file_upload() {
         let temp_dir = TempDir::new().unwrap();
         let large_content = "x".repeat(1024 * 1024); // 1MB
         let large_file = create_test_file(&temp_dir, "large.txt", &large_content);
@@ -288,8 +288,8 @@ mod cli_tests {
         assert!(stdout.contains("1.0 MB")); // Fichier de 1MB
     }
 
-    #[test]
-    fn test_cli_special_characters_in_filename() {
+    #[tokio::test]
+    async fn test_cli_special_characters_in_filename() {
         let temp_dir = TempDir::new().unwrap();
         let special_file =
             create_test_file(&temp_dir, "file with spaces & symbols!.txt", "content");
@@ -308,8 +308,8 @@ mod cli_tests {
     }
 
     // Tests pour vérifier que les anciennes options SSH key ont été supprimées
-    #[test]
-    fn test_cli_ssh_key_options_removed() {
+    #[tokio::test]
+    async fn test_cli_ssh_key_options_removed() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 
@@ -327,8 +327,8 @@ mod cli_tests {
         assert!(stderr.contains("unexpected argument") || stderr.contains("unrecognized"));
     }
 
-    #[test]
-    fn test_cli_destination_default() {
+    #[tokio::test]
+    async fn test_cli_destination_default() {
         let temp_dir = TempDir::new().unwrap();
         let test_file = create_test_file(&temp_dir, "test.txt", "test content");
 

@@ -1,6 +1,6 @@
 [package]
 name = "xsshend"
-version = "0.3.5"
+version = "0.4.0"
 edition = "2021"
 description = "Simple CLI tool for uploading files to multiple SSH servers"
 license = "MIT"
@@ -11,8 +11,14 @@ keywords = ["ssh", "upload", "cli", "file-transfer"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
-# SSH & Transferts
-ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+# SSH & Transferts (Pure Rust - No OpenSSL!)
+russh = "0.45"
+russh-sftp = "2.0"
+russh-keys = "0.45"
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
 
 # Interface utilisateur simple
 indicatif = "0.17"

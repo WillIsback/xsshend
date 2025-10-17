@@ -51,8 +51,8 @@ mod config_tests {
         serde_json::from_str(json_content).unwrap()
     }
 
-    #[test]
-    fn test_config_parsing() {
+    #[tokio::test]
+    async fn test_config_parsing() {
         let config = create_test_config();
 
         // Vérifier la structure de base
@@ -69,8 +69,8 @@ mod config_tests {
         assert_eq!(web_server.env, "PROD");
     }
 
-    #[test]
-    fn test_host_entry_serialization() {
+    #[tokio::test]
+    async fn test_host_entry_serialization() {
         let host_entry = HostEntry {
             alias: "test@example.com".to_string(),
             env: "TEST".to_string(),
@@ -83,8 +83,8 @@ mod config_tests {
         assert_eq!(host_entry.env, deserialized.env);
     }
 
-    #[test]
-    fn test_filter_hosts_by_environment() {
+    #[tokio::test]
+    async fn test_filter_hosts_by_environment() {
         let config = create_test_config();
 
         let prod_hosts = config.filter_hosts(Some(&"Production".to_string()), None, None);
@@ -99,8 +99,8 @@ mod config_tests {
         }
     }
 
-    #[test]
-    fn test_filter_hosts_by_region() {
+    #[tokio::test]
+    async fn test_filter_hosts_by_region() {
         let config = create_test_config();
 
         let region_a_hosts = config.filter_hosts(None, Some(&"Region-A".to_string()), None);
@@ -110,8 +110,8 @@ mod config_tests {
         assert_eq!(region_b_hosts.len(), 1); // 1 serveur dans Region-B
     }
 
-    #[test]
-    fn test_filter_hosts_by_type() {
+    #[tokio::test]
+    async fn test_filter_hosts_by_type() {
         let config = create_test_config();
 
         let public_hosts = config.filter_hosts(None, None, Some(&"Public".to_string()));
@@ -121,8 +121,8 @@ mod config_tests {
         assert_eq!(private_hosts.len(), 1); // 1 serveur privé
     }
 
-    #[test]
-    fn test_filter_hosts_combined() {
+    #[tokio::test]
+    async fn test_filter_hosts_combined() {
         let config = create_test_config();
 
         // Production + Region-A + Public
@@ -143,16 +143,16 @@ mod config_tests {
         assert!(server_names.contains(&"API_SERVER_01".to_string()));
     }
 
-    #[test]
-    fn test_filter_hosts_no_match() {
+    #[tokio::test]
+    async fn test_filter_hosts_no_match() {
         let config = create_test_config();
 
         let no_match = config.filter_hosts(Some(&"NonExistent".to_string()), None, None);
         assert_eq!(no_match.len(), 0);
     }
 
-    #[test]
-    fn test_config_creation_default() {
+    #[tokio::test]
+    async fn test_config_creation_default() {
         let temp_dir = TempDir::new().unwrap();
 
         // Simuler le processus de création de config par défaut
@@ -180,16 +180,16 @@ mod config_tests {
         assert!(config.environments.contains_key("Production"));
     }
 
-    #[test]
-    fn test_invalid_config_handling() {
+    #[tokio::test]
+    async fn test_invalid_config_handling() {
         let invalid_json = r#"{ "invalid": json structure }"#;
 
         let result: Result<HostsConfig, _> = serde_json::from_str(invalid_json);
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_empty_config() {
+    #[tokio::test]
+    async fn test_empty_config() {
         let empty_config = HostsConfig {
             environments: std::collections::HashMap::new(),
         };
@@ -198,8 +198,8 @@ mod config_tests {
         assert_eq!(all_hosts.len(), 0);
     }
 
-    #[test]
-    fn test_config_with_special_characters() {
+    #[tokio::test]
+    async fn test_config_with_special_characters() {
         let config_with_special = r#"
         {
             "Test-Env": {
@@ -222,8 +222,8 @@ mod config_tests {
         assert_eq!(hosts.len(), 1);
     }
 
-    #[test]
-    fn test_host_entry_fields() {
+    #[tokio::test]
+    async fn test_host_entry_fields() {
         let host_entry = HostEntry {
             alias: "testuser@testhost.com".to_string(),
             env: "TESTING".to_string(),
@@ -233,8 +233,8 @@ mod config_tests {
         assert_eq!(host_entry.env, "TESTING");
     }
 
-    #[test]
-    fn test_config_deep_nesting() {
+    #[tokio::test]
+    async fn test_config_deep_nesting() {
         let config = create_test_config();
 
         // Tester l'accès aux niveaux profonds
@@ -245,8 +245,8 @@ mod config_tests {
         assert_eq!(db_server.alias, "db01@prod-db-01.example.com");
     }
 
-    #[test]
-    fn test_case_sensitivity() {
+    #[tokio::test]
+    async fn test_case_sensitivity() {
         let config = create_test_config();
 
         // Les filtres sont sensibles à la casse

@@ -4,8 +4,8 @@ mod validator_tests {
     use tempfile::TempDir;
     use xsshend::core::validator::Validator;
 
-    #[test]
-    fn test_validate_file_exists() {
+    #[tokio::test]
+    async fn test_validate_file_exists() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test_file.txt");
         fs::write(&file_path, "test content").unwrap();
@@ -14,8 +14,8 @@ mod validator_tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_validate_file_not_exists() {
+    #[tokio::test]
+    async fn test_validate_file_not_exists() {
         let temp_dir = TempDir::new().unwrap();
         let nonexistent_file = temp_dir.path().join("nonexistent.txt");
 
@@ -23,8 +23,8 @@ mod validator_tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_validate_file_is_directory() {
+    #[tokio::test]
+    async fn test_validate_file_is_directory() {
         let temp_dir = TempDir::new().unwrap();
         let dir_path = temp_dir.path().join("test_dir");
         fs::create_dir(&dir_path).unwrap();
@@ -33,8 +33,8 @@ mod validator_tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_get_file_size() {
+    #[tokio::test]
+    async fn test_get_file_size() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test_file.txt");
         let content = "Hello, World!";
@@ -44,8 +44,8 @@ mod validator_tests {
         assert_eq!(size, content.len() as u64);
     }
 
-    #[test]
-    fn test_get_file_size_nonexistent() {
+    #[tokio::test]
+    async fn test_get_file_size_nonexistent() {
         let temp_dir = TempDir::new().unwrap();
         let nonexistent_file = temp_dir.path().join("nonexistent.txt");
 
@@ -53,22 +53,22 @@ mod validator_tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_format_file_size_bytes() {
+    #[tokio::test]
+    async fn test_format_file_size_bytes() {
         assert_eq!(Validator::format_file_size(0), "0 B");
         assert_eq!(Validator::format_file_size(512), "512 B");
         assert_eq!(Validator::format_file_size(1023), "1023 B");
     }
 
-    #[test]
-    fn test_format_file_size_kilobytes() {
+    #[tokio::test]
+    async fn test_format_file_size_kilobytes() {
         assert_eq!(Validator::format_file_size(1024), "1.0 KB");
         assert_eq!(Validator::format_file_size(1536), "1.5 KB");
         assert_eq!(Validator::format_file_size(10240), "10.0 KB");
     }
 
-    #[test]
-    fn test_format_file_size_megabytes() {
+    #[tokio::test]
+    async fn test_format_file_size_megabytes() {
         assert_eq!(Validator::format_file_size(1024 * 1024), "1.0 MB");
         assert_eq!(Validator::format_file_size(1024 * 1024 * 2), "2.0 MB");
         assert_eq!(
@@ -77,8 +77,8 @@ mod validator_tests {
         );
     }
 
-    #[test]
-    fn test_format_file_size_gigabytes() {
+    #[tokio::test]
+    async fn test_format_file_size_gigabytes() {
         assert_eq!(Validator::format_file_size(1024 * 1024 * 1024), "1.0 GB");
         assert_eq!(
             Validator::format_file_size(1024 * 1024 * 1024 * 3),
@@ -86,15 +86,15 @@ mod validator_tests {
         );
     }
 
-    #[test]
-    fn test_format_file_size_edge_cases() {
+    #[tokio::test]
+    async fn test_format_file_size_edge_cases() {
         assert_eq!(Validator::format_file_size(1), "1 B");
         assert_eq!(Validator::format_file_size(1025), "1.0 KB");
         assert_eq!(Validator::format_file_size(1048577), "1.0 MB");
     }
 
-    #[test]
-    fn test_validate_empty_file() {
+    #[tokio::test]
+    async fn test_validate_empty_file() {
         let temp_dir = TempDir::new().unwrap();
         let empty_file = temp_dir.path().join("empty.txt");
         fs::write(&empty_file, "").unwrap();
@@ -107,8 +107,8 @@ mod validator_tests {
         assert_eq!(Validator::format_file_size(size), "0 B");
     }
 
-    #[test]
-    fn test_validate_large_file() {
+    #[tokio::test]
+    async fn test_validate_large_file() {
         let temp_dir = TempDir::new().unwrap();
         let large_file = temp_dir.path().join("large.txt");
 
@@ -124,8 +124,8 @@ mod validator_tests {
         assert_eq!(Validator::format_file_size(size), "1.0 MB");
     }
 
-    #[test]
-    fn test_validate_file_with_special_characters() {
+    #[tokio::test]
+    async fn test_validate_file_with_special_characters() {
         let temp_dir = TempDir::new().unwrap();
         let special_file = temp_dir.path().join("file with spaces & symbols!.txt");
         fs::write(&special_file, "content").unwrap();
@@ -134,8 +134,8 @@ mod validator_tests {
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_validate_file_permissions() {
+    #[tokio::test]
+    async fn test_validate_file_permissions() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test_file.txt");
         fs::write(&file_path, "test content").unwrap();
@@ -160,8 +160,8 @@ mod validator_tests {
         }
     }
 
-    #[test]
-    fn test_validate_multiple_files() {
+    #[tokio::test]
+    async fn test_validate_multiple_files() {
         let temp_dir = TempDir::new().unwrap();
 
         let file1 = temp_dir.path().join("file1.txt");
@@ -183,8 +183,8 @@ mod validator_tests {
         assert_eq!(Validator::get_file_size(&file3).unwrap(), 8);
     }
 
-    #[test]
-    fn test_format_file_size_precision() {
+    #[tokio::test]
+    async fn test_format_file_size_precision() {
         // Tester la précision des calculs
         assert_eq!(Validator::format_file_size(1536), "1.5 KB"); // 1.5 * 1024
         assert_eq!(Validator::format_file_size(2560), "2.5 KB"); // 2.5 * 1024

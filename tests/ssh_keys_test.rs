@@ -31,8 +31,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         temp_dir
     }
 
-    #[test]
-    fn test_ssh_key_creation() {
+    #[tokio::test]
+    async fn test_ssh_key_creation() {
         let temp_dir = create_test_ssh_dir();
         let key_path = temp_dir.path().join(".ssh/id_ed25519");
 
@@ -45,8 +45,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         assert_eq!(ssh_key.comment.unwrap(), "test@example.com");
     }
 
-    #[test]
-    fn test_ssh_key_type_detection() {
+    #[tokio::test]
+    async fn test_ssh_key_type_detection() {
         let temp_dir = TempDir::new().unwrap();
 
         // Test Ed25519
@@ -68,8 +68,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         assert_eq!(key.key_type, SshKeyType::Ecdsa);
     }
 
-    #[test]
-    fn test_ssh_key_description() {
+    #[tokio::test]
+    async fn test_ssh_key_description() {
         let temp_dir = create_test_ssh_dir();
         let key_path = temp_dir.path().join(".ssh/id_ed25519");
         let ssh_key = SshKey::new("id_ed25519".to_string(), key_path).unwrap();
@@ -80,8 +80,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         assert!(description.contains("test@example.com"));
     }
 
-    #[test]
-    fn test_ssh_key_manager_creation() {
+    #[tokio::test]
+    async fn test_ssh_key_manager_creation() {
         // Note: Ce test dépend de l'environnement réel
         // Dans un vrai environnement de test, on mockrait dirs::home_dir()
 
@@ -98,8 +98,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         }
     }
 
-    #[test]
-    fn test_ssh_key_manager_key_selection() {
+    #[tokio::test]
+    async fn test_ssh_key_manager_key_selection() {
         // Test de la logique de sélection de clés
         // Créer un manager avec des clés de test manuellement
 
@@ -128,8 +128,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         assert_eq!(best_key.key_type, SshKeyType::Ed25519);
     }
 
-    #[test]
-    fn test_ssh_key_types_display() {
+    #[tokio::test]
+    async fn test_ssh_key_types_display() {
         assert_eq!(format!("{}", SshKeyType::Ed25519), "Ed25519");
         assert_eq!(format!("{}", SshKeyType::Rsa), "RSA");
         assert_eq!(format!("{}", SshKeyType::Ecdsa), "ECDSA");
@@ -139,8 +139,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         );
     }
 
-    #[test]
-    fn test_ssh_key_types_equality() {
+    #[tokio::test]
+    async fn test_ssh_key_types_equality() {
         assert_eq!(SshKeyType::Ed25519, SshKeyType::Ed25519);
         assert_ne!(SshKeyType::Ed25519, SshKeyType::Rsa);
         assert_eq!(
@@ -149,8 +149,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         );
     }
 
-    #[test]
-    fn test_ssh_key_without_public_key() {
+    #[tokio::test]
+    async fn test_ssh_key_without_public_key() {
         let temp_dir = TempDir::new().unwrap();
         let private_key_path = temp_dir.path().join("private_only");
         fs::write(&private_key_path, "-----BEGIN OPENSSH PRIVATE KEY-----").unwrap();
@@ -162,8 +162,8 @@ MIIEpAIBAAKCAQEA1234567890abcdef...
         assert!(ssh_key.comment.is_none());
     }
 
-    #[test]
-    fn test_ssh_key_comment_extraction() {
+    #[tokio::test]
+    async fn test_ssh_key_comment_extraction() {
         let temp_dir = TempDir::new().unwrap();
 
         // Créer une clé publique avec commentaire

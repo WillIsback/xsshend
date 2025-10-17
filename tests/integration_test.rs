@@ -84,8 +84,8 @@ mod integration_tests {
         }
     }
 
-    #[test]
-    fn test_integration_init_command() {
+    #[tokio::test]
+    async fn test_integration_init_command() {
         let test_env = TestEnvironment::new();
 
         // Exécuter la commande init
@@ -106,8 +106,8 @@ mod integration_tests {
         assert!(content.contains("Staging"));
     }
 
-    #[test]
-    fn test_integration_list_with_config() {
+    #[tokio::test]
+    async fn test_integration_list_with_config() {
         let test_env = TestEnvironment::new();
         test_env.create_test_config();
 
@@ -119,8 +119,8 @@ mod integration_tests {
         assert!(stdout.contains("TEST_SERVER"));
     }
 
-    #[test]
-    fn test_integration_upload_dry_run_workflow() {
+    #[tokio::test]
+    async fn test_integration_upload_dry_run_workflow() {
         let test_env = TestEnvironment::new();
         test_env.create_test_config();
         let test_file = test_env.create_test_file("test.txt", "integration test content");
@@ -141,8 +141,8 @@ mod integration_tests {
         assert!(stdout.contains("Simulation terminée"));
     }
 
-    #[test]
-    fn test_integration_complete_workflow() {
+    #[tokio::test]
+    async fn test_integration_complete_workflow() {
         let test_env = TestEnvironment::new();
 
         // 1. Initialiser la configuration
@@ -167,8 +167,8 @@ mod integration_tests {
         assert!(upload_output.status.success());
     }
 
-    #[test]
-    fn test_integration_ssh_key_detection() {
+    #[tokio::test]
+    async fn test_integration_ssh_key_detection() {
         let test_env = TestEnvironment::new();
         test_env.create_test_ssh_key();
         test_env.create_test_config();
@@ -181,8 +181,8 @@ mod integration_tests {
         assert!(!stdout.contains("Aucune clé SSH trouvée"));
     }
 
-    #[test]
-    fn test_integration_multiple_files_upload() {
+    #[tokio::test]
+    async fn test_integration_multiple_files_upload() {
         let test_env = TestEnvironment::new();
         test_env.create_test_config();
 
@@ -207,8 +207,8 @@ mod integration_tests {
         assert!(stdout.contains("file3.txt"));
     }
 
-    #[test]
-    fn test_integration_error_handling() {
+    #[tokio::test]
+    async fn test_integration_error_handling() {
         let test_env = TestEnvironment::new();
         test_env.create_test_config();
 
@@ -225,8 +225,8 @@ mod integration_tests {
         // Le programme devrait échouer gracieusement
     }
 
-    #[test]
-    fn test_integration_config_without_ssh_keys() {
+    #[tokio::test]
+    async fn test_integration_config_without_ssh_keys() {
         let test_env = TestEnvironment::new();
         test_env.create_test_config();
         // Pas de clés SSH créées
@@ -247,8 +247,8 @@ mod integration_tests {
         assert!(stdout.contains("Mode dry-run"));
     }
 
-    #[test]
-    fn test_integration_filter_combinations() {
+    #[tokio::test]
+    async fn test_integration_filter_combinations() {
         let test_env = TestEnvironment::new();
 
         // Créer une config plus complexe
@@ -327,8 +327,8 @@ mod integration_tests {
         }
     }
 
-    #[test]
-    fn test_integration_large_config_performance() {
+    #[tokio::test]
+    async fn test_integration_large_config_performance() {
         let test_env = TestEnvironment::new();
 
         // Générer une grande configuration avec de nombreux serveurs
@@ -396,8 +396,8 @@ mod integration_tests {
         assert!(stdout.contains("Mode dry-run"));
     }
 
-    #[test]
-    fn test_integration_init_force_overwrite() {
+    #[tokio::test]
+    async fn test_integration_init_force_overwrite() {
         let test_env = TestEnvironment::new();
 
         // Créer un config initial
@@ -415,8 +415,8 @@ mod integration_tests {
         assert!(new_content.contains("Production")); // Contenu du template par défaut
     }
 
-    #[test]
-    fn test_integration_ssh_permissions() {
+    #[tokio::test]
+    async fn test_integration_ssh_permissions() {
         let test_env = TestEnvironment::new();
 
         let output = test_env.run_xsshend(&["init", "--force"]);

@@ -31,21 +31,21 @@ mod uploader_tests {
         ]
     }
 
-    #[test]
-    fn test_uploader_creation() {
+    #[tokio::test]
+    async fn test_uploader_creation() {
         let _uploader = Uploader::new();
         // Test que l'uploader peut être créé sans erreur
         // L'uploader est maintenant une structure vide, donc ce test vérifie juste la création
     }
 
-    #[test]
-    fn test_uploader_default() {
+    #[tokio::test]
+    async fn test_uploader_default() {
         let _uploader = Uploader;
         // Test que Default trait fonctionne
     }
 
-    #[test]
-    fn test_parse_server_alias_valid() {
+    #[tokio::test]
+    async fn test_parse_server_alias_valid() {
         // Test avec un alias valide
         let (username, host) = Uploader::parse_server_alias("user@example.com").unwrap();
         assert_eq!(username, "user");
@@ -57,8 +57,8 @@ mod uploader_tests {
         assert_eq!(host, "server.local:2222");
     }
 
-    #[test]
-    fn test_parse_server_alias_invalid() {
+    #[tokio::test]
+    async fn test_parse_server_alias_invalid() {
         // Test avec alias invalide (pas de @)
         let result = Uploader::parse_server_alias("invalid-alias");
         assert!(result.is_err());
@@ -72,8 +72,8 @@ mod uploader_tests {
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_dry_run_basic() {
+    #[tokio::test]
+    async fn test_dry_run_basic() {
         let temp_dir = create_test_file("test content");
         let file_path = temp_dir.path().join("test_file.txt");
         let file_refs = vec![file_path.as_path()];
@@ -87,12 +87,14 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Le dry-run ne devrait pas échouer
-        let result = Uploader::new().dry_run(&file_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_dry_run_with_invalid_file() {
+    #[tokio::test]
+    async fn test_dry_run_with_invalid_file() {
         let temp_dir = TempDir::new().unwrap();
         let invalid_file = temp_dir.path().join("nonexistent.txt");
         let file_refs = vec![invalid_file.as_path()];
@@ -106,12 +108,14 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Devrait échouer car le fichier n'existe pas
-        let result = Uploader::new().dry_run(&file_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_err());
     }
 
-    #[test]
-    fn test_dry_run_with_empty_hosts() {
+    #[tokio::test]
+    async fn test_dry_run_with_empty_hosts() {
         let temp_dir = create_test_file("test content");
         let file_path = temp_dir.path().join("test_file.txt");
         let file_refs = vec![file_path.as_path()];
@@ -121,12 +125,14 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Devrait fonctionner même avec une liste vide d'hôtes
-        let result = Uploader::new().dry_run(&file_refs, &empty_hosts, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &empty_hosts, "/tmp/")
+            .await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_dry_run_with_multiple_files() {
+    #[tokio::test]
+    async fn test_dry_run_with_multiple_files() {
         let temp_dir = TempDir::new().unwrap();
 
         // Créer plusieurs fichiers de test
@@ -144,12 +150,14 @@ mod uploader_tests {
 
         let _uploader = Uploader::new();
 
-        let result = Uploader::new().dry_run(&file_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_dry_run_different_destinations() {
+    #[tokio::test]
+    async fn test_dry_run_different_destinations() {
         let temp_dir = create_test_file("test content");
         let file_path = temp_dir.path().join("test_file.txt");
         let file_refs = vec![file_path.as_path()];
@@ -165,20 +173,24 @@ mod uploader_tests {
         // Test avec différentes destinations
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/home/user/")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/var/www/")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/opt/app/")
+            .await
             .is_ok());
     }
 
-    #[test]
-    fn test_upload_files_validation() {
+    #[tokio::test]
+    async fn test_upload_files_validation() {
         let temp_dir = TempDir::new().unwrap();
 
         // Créer un fichier valide
@@ -204,14 +216,16 @@ mod uploader_tests {
         // Ici on teste seulement la validation des fichiers
 
         // Le test avec un fichier invalide devrait échouer pendant la validation
-        let result = Uploader::new().upload_files(&invalid_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .upload_files(&invalid_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_err());
     }
 
     // Tests pour les méthodes privées via des tests indirects
 
-    #[test]
-    fn test_server_alias_parsing_edge_cases() {
+    #[tokio::test]
+    async fn test_server_alias_parsing_edge_cases() {
         let _uploader = Uploader::new();
 
         // Test avec des caractères spéciaux
@@ -236,8 +250,8 @@ mod uploader_tests {
         assert_eq!(host, "app.staging.example.com");
     }
 
-    #[test]
-    fn test_destination_path_handling() {
+    #[tokio::test]
+    async fn test_destination_path_handling() {
         let temp_dir = create_test_file("test content");
         let file_path = temp_dir.path().join("test_file.txt");
         let file_refs = vec![file_path.as_path()];
@@ -253,20 +267,24 @@ mod uploader_tests {
         // Test avec différents formats de destination
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/tmp")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "~/uploads")
+            .await
             .is_ok());
         assert!(Uploader::new()
             .dry_run(&file_refs, &host_refs, "./files")
+            .await
             .is_ok());
     }
 
-    #[test]
-    fn test_large_host_list() {
+    #[tokio::test]
+    async fn test_large_host_list() {
         let temp_dir = create_test_file("test content");
         let file_path = temp_dir.path().join("test_file.txt");
         let file_refs = vec![file_path.as_path()];
@@ -291,12 +309,14 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Le dry-run devrait gérer une grande liste d'hôtes
-        let result = Uploader::new().dry_run(&file_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_ok());
     }
 
-    #[test]
-    fn test_file_size_calculation() {
+    #[tokio::test]
+    async fn test_file_size_calculation() {
         let temp_dir = TempDir::new().unwrap();
 
         // Créer des fichiers de différentes tailles
@@ -320,7 +340,9 @@ mod uploader_tests {
         let _uploader = Uploader::new();
 
         // Le dry-run devrait fonctionner avec des fichiers de différentes tailles
-        let result = Uploader::new().dry_run(&file_refs, &host_refs, "/tmp/");
+        let result = Uploader::new()
+            .dry_run(&file_refs, &host_refs, "/tmp/")
+            .await;
         assert!(result.is_ok());
     }
 }

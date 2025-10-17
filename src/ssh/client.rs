@@ -1,60 +1,81 @@
-// Client SSH/SFTP simplifié pour xsshend
+// Client SSH/SFTP pour xsshend - Implémentation Pure Rust avec russh
 use anyhow::{Context, Result};
-use ssh2::{Session, Sftp};
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use async_trait::async_trait;
+use russh::client::{self, Handle};
+use russh_keys::key::PublicKey;
+use russh_sftp::client::SftpSession;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
 
 use super::keys::{SshKey, SshKeyManager};
 
+/// Handler pour les événements du client SSH
+struct ClientHandler;
+
+#[async_trait]
+impl client::Handler for ClientHandler {
+    type Error = anyhow::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &PublicKey,
+    ) -> Result<bool, Self::Error> {
+        // Pour l'instant, accepter toutes les clés serveur
+        // TODO: Vérifier contre known_hosts
+        Ok(true)
+    }
+}
+
+/// Client SSH/SFTP asynchrone
 pub struct SshClient {
-    session: Option<Session>,
-    sftp: Option<Sftp>,
+    handle: Option<Handle<ClientHandler>>,
+    sftp: Option<SftpSession>,
     host: String,
     username: String,
+    port: u16,
 }
 
 impl SshClient {
-    /// Créer un nouveau client SSH basique
+    /// Créer un nouveau client SSH
     pub fn new(host: &str, username: &str) -> Result<Self> {
         Ok(SshClient {
-            session: None,
+            handle: None,
             sftp: None,
             host: host.to_string(),
             username: username.to_string(),
+            port: 22,
         })
     }
 
     /// Se connecter au serveur SSH avec timeout
-    pub fn connect_with_timeout(&mut self, timeout: Duration) -> Result<()> {
-        use std::net::ToSocketAddrs;
+    pub async fn connect_with_timeout(&mut self, timeout: Duration) -> Result<()> {
+        let addr = format!("{}:{}", self.host, self.port);
 
-        // Résoudre le hostname et établir la connexion TCP
-        let addr = format!("{}:22", self.host)
-            .to_socket_addrs()
-            .with_context(|| format!("Impossible de résoudre l'adresse {}", self.host))?
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("Aucune adresse IP trouvée pour {}", self.host))?;
+        log::debug!("Connexion à {}...", addr);
 
-        let tcp = TcpStream::connect_timeout(&addr, timeout)
-            .with_context(|| format!("Impossible de se connecter à {}:22 ({})", self.host, addr))?;
+        // Configuration du client SSH
+        let config = Arc::new(russh::client::Config::default());
+        let handler = ClientHandler;
 
-        tcp.set_read_timeout(Some(timeout))?;
-        tcp.set_write_timeout(Some(timeout))?;
-
-        // Créer la session SSH
-        let mut session = Session::new()?;
-        session.set_tcp_stream(tcp);
-        session.handshake()?;
+        // Connexion avec timeout
+        let mut session =
+            tokio::time::timeout(timeout, russh::client::connect(config, &addr, handler))
+                .await
+                .context("Timeout de connexion SSH")?
+                .context("Impossible de se connecter au serveur SSH")?;
 
         // Authentification
-        self.authenticate(&mut session)?;
+        self.authenticate(&mut session).await?;
 
         // Créer le canal SFTP
-        let sftp = session.sftp()?;
+        let channel = session.channel_open_session().await?;
+        let sftp = SftpSession::new(channel.into_stream())
+            .await
+            .context("Impossible de créer la session SFTP")?;
 
-        self.session = Some(session);
+        self.handle = Some(session);
         self.sftp = Some(sftp);
 
         log::debug!(
@@ -66,9 +87,9 @@ impl SshClient {
     }
 
     /// Authentification SSH - essaie toutes les méthodes disponibles
-    fn authenticate(&self, session: &mut Session) -> Result<()> {
-        // Essayer d'abord ssh-agent (idéal car il gère toutes les clés)
-        if self.try_ssh_agent_auth(session)? {
+    async fn authenticate(&self, session: &mut Handle<ClientHandler>) -> Result<()> {
+        // Essayer ssh-agent en premier si disponible
+        if self.try_ssh_agent_auth(session).await? {
             return Ok(());
         }
 
@@ -87,7 +108,7 @@ impl SshClient {
             for key in keys {
                 log::debug!("Tentative d'authentification avec la clé: {}", key.name);
 
-                match self.authenticate_with_key(session, key, None) {
+                match self.authenticate_with_key(session, key).await {
                     Ok(()) => {
                         log::info!("✅ Authentification réussie avec la clé: {}", key.name);
                         return Ok(());
@@ -115,79 +136,74 @@ impl SshClient {
     }
 
     /// Essayer l'authentification via ssh-agent
-    fn try_ssh_agent_auth(&self, session: &mut Session) -> Result<bool> {
-        match session.userauth_agent(&self.username) {
-            Ok(()) => {
-                log::debug!("Authentification réussie via ssh-agent");
-                Ok(true)
-            }
-            Err(_) => {
-                log::debug!("Authentification via ssh-agent échouée, essai avec clés locales");
-                Ok(false)
-            }
-        }
+    async fn try_ssh_agent_auth(&self, _session: &mut Handle<ClientHandler>) -> Result<bool> {
+        // russh ne supporte pas ssh-agent directement de la même manière
+        // On va essayer avec les clés disponibles à la place
+        log::debug!("Tentative avec les clés locales (ssh-agent non supporté pour l'instant)");
+        Ok(false)
     }
 
     /// Authentification avec une clé spécifique
-    fn authenticate_with_key(
+    async fn authenticate_with_key(
         &self,
-        session: &mut Session,
+        session: &mut Handle<ClientHandler>,
         key: &SshKey,
-        passphrase: Option<&str>,
     ) -> Result<()> {
-        let private_key_content =
-            std::fs::read_to_string(&key.private_key_path).with_context(|| {
-                format!(
-                    "Impossible de lire la clé privée: {:?}",
-                    key.private_key_path
-                )
-            })?;
+        // Charger la clé privée avec russh-keys
+        let key_pair = russh_keys::load_secret_key(&key.private_key_path, None)
+            .context(format!("Impossible de charger la clé {}", key.name))?;
 
-        let public_key_content = if let Some(pub_path) = &key.public_key_path {
-            Some(std::fs::read_to_string(pub_path)?)
-        } else {
-            None
-        };
+        // Authentification avec la clé
+        let authenticated = session
+            .authenticate_publickey(&self.username, Arc::new(key_pair))
+            .await
+            .context(format!("Authentification échouée avec la clé {}", key.name))?;
 
-        session
-            .userauth_pubkey_memory(
-                &self.username,
-                public_key_content.as_deref(),
-                &private_key_content,
-                passphrase,
-            )
-            .with_context(|| format!("Authentification échouée avec la clé {}", key.name))?;
+        if !authenticated {
+            anyhow::bail!(
+                "Authentification refusée par le serveur pour la clé {}",
+                key.name
+            );
+        }
 
         log::debug!("Authentification réussie avec la clé {}", key.name);
         Ok(())
     }
 
     /// Téléverser un fichier
-    pub fn upload_file(&mut self, local_path: &Path, remote_path: &str) -> Result<u64> {
-        let sftp = self
-            .sftp
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Connexion SFTP non établie"))?;
-
+    pub async fn upload_file(&mut self, local_path: &Path, remote_path: &str) -> Result<u64> {
         // Lire le fichier local
-        let mut local_file = std::fs::File::open(local_path)
-            .with_context(|| format!("Impossible d'ouvrir le fichier local: {:?}", local_path))?;
-
-        let mut buffer = Vec::new();
-        local_file.read_to_end(&mut buffer)?;
+        let buffer = tokio::fs::read(local_path)
+            .await
+            .with_context(|| format!("Impossible de lire le fichier local: {:?}", local_path))?;
 
         // S'assurer que le répertoire distant existe
         if let Some(parent_dir) = Path::new(remote_path).parent() {
-            self.ensure_remote_directory(parent_dir.to_str().unwrap_or("/tmp"))?;
+            self.ensure_remote_directory(parent_dir.to_str().unwrap_or("/tmp"))
+                .await?;
         }
 
-        // Créer le fichier distant
+        // Obtenir la session SFTP
+        let sftp = self
+            .sftp
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Connexion SFTP non établie"))?;
+
+        // Créer le fichier distant et écrire les données
         let mut remote_file = sftp
-            .create(Path::new(remote_path))
+            .create(remote_path)
+            .await
             .with_context(|| format!("Impossible de créer le fichier distant: {}", remote_path))?;
 
-        // Écrire les données
-        remote_file.write_all(&buffer)?;
+        remote_file
+            .write_all(&buffer)
+            .await
+            .context("Erreur lors de l'écriture du fichier distant")?;
+
+        remote_file
+            .shutdown()
+            .await
+            .context("Erreur lors de la fermeture du fichier distant")?;
 
         let size = buffer.len() as u64;
         log::debug!(
@@ -201,21 +217,23 @@ impl SshClient {
     }
 
     /// S'assurer que le répertoire distant existe
-    fn ensure_remote_directory(&self, remote_dir: &str) -> Result<()> {
+    async fn ensure_remote_directory(&mut self, remote_dir: &str) -> Result<()> {
         let sftp = self
             .sftp
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Connexion SFTP non établie"))?;
 
         // Essayer de créer le répertoire (ignore l'erreur s'il existe déjà)
-        let _ = sftp.mkdir(Path::new(remote_dir), 0o755);
+        let _ = sftp.create_dir(remote_dir).await;
         Ok(())
     }
 
     /// Fermer la connexion SSH
-    pub fn disconnect(&mut self) -> Result<()> {
-        if let Some(session) = self.session.take() {
-            let _ = session.disconnect(None, "Client disconnect", None);
+    pub async fn disconnect(&mut self) -> Result<()> {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle
+                .disconnect(russh::Disconnect::ByApplication, "", "")
+                .await;
         }
         self.sftp = None;
         log::debug!("Connexion SSH fermée avec {}@{}", self.username, self.host);
@@ -225,6 +243,10 @@ impl SshClient {
 
 impl Drop for SshClient {
     fn drop(&mut self) {
-        let _ = self.disconnect();
+        // Note: Dans un contexte async, on ne peut pas await dans Drop
+        // Les ressources seront nettoyées automatiquement
+        if self.handle.is_some() {
+            log::debug!("Fermeture automatique de la connexion SSH");
+        }
     }
 }

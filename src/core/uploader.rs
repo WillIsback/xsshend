@@ -14,7 +14,7 @@ impl Uploader {
     }
 
     /// Téléverse plusieurs fichiers vers plusieurs serveurs (simplifié)
-    pub fn upload_files(
+    pub async fn upload_files(
         &self,
         files: &[&Path],
         hosts: &[(String, &HostEntry)],
@@ -55,7 +55,10 @@ impl Uploader {
             for (host_name, host_entry) in hosts {
                 progress.set_message(format!("→ {}", host_name));
 
-                match self.upload_to_single_host(file, host_entry, destination) {
+                match self
+                    .upload_to_single_host(file, host_entry, destination)
+                    .await
+                {
                     Ok(_) => {
                         progress.println(format!("  ✅ {}", host_name));
                     }
@@ -95,7 +98,7 @@ impl Uploader {
     }
 
     /// Téléverse un fichier vers un seul serveur
-    fn upload_to_single_host(
+    async fn upload_to_single_host(
         &self,
         file: &Path,
         host_entry: &HostEntry,
@@ -105,7 +108,9 @@ impl Uploader {
 
         let mut client = SshClient::new(&host, &username)?;
 
-        client.connect_with_timeout(std::time::Duration::from_secs(10))?;
+        client
+            .connect_with_timeout(std::time::Duration::from_secs(10))
+            .await?;
 
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
         let full_destination = if destination.ends_with('/') {
@@ -114,8 +119,8 @@ impl Uploader {
             format!("{}/{}", destination, file_name)
         };
 
-        client.upload_file(file, &full_destination)?;
-        client.disconnect()?;
+        client.upload_file(file, &full_destination).await?;
+        client.disconnect().await?;
 
         Ok(())
     }
@@ -147,7 +152,7 @@ impl Uploader {
     }
 
     /// Mode dry-run : simulation sans transfert réel
-    pub fn dry_run(
+    pub async fn dry_run(
         &self,
         files: &[&Path],
         hosts: &[(String, &HostEntry)],

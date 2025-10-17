@@ -10,11 +10,12 @@ mod utils;
 use config::HostsConfig;
 use core::uploader::Uploader;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::init();
 
     let app = Command::new("xsshend")
-        .version("0.3.5")
+        .version("0.4.0")
         .about("Outil Rust de téléversement multi-SSH (CLI uniquement)")
         .after_help(
             "EXEMPLES D'UTILISATION:\n\n\
@@ -242,10 +243,14 @@ fn main() -> Result<()> {
 
             if sub_matches.get_flag("dry-run") {
                 // Mode dry-run - simulation
-                uploader.dry_run(&file_refs, &target_hosts, destination)?;
+                uploader
+                    .dry_run(&file_refs, &target_hosts, destination)
+                    .await?;
             } else {
                 // Mode direct simplifié
-                uploader.upload_files(&file_refs, &target_hosts, destination)?;
+                uploader
+                    .upload_files(&file_refs, &target_hosts, destination)
+                    .await?;
             }
         }
         Some(("list", _sub_matches)) => {
