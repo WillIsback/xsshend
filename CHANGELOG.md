@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.3] - 2025-10-17
+
+### Amélioré
+
+- **📖 Aide CLI enrichie** : Ajout d'exemples d'utilisation détaillés dans toutes les commandes
+  - `xsshend --help` : Exemples complets avec tous les cas d'usage courants
+  - `xsshend upload --help` : Guide détaillé des filtres et combinaisons possibles
+  - `xsshend list --help` : Exemples d'utilisation de la commande list
+  - `xsshend init --help` : Documentation du processus d'initialisation
+  - Documentation des filtres disponibles : `--env`, `--region`, `--type`, `--dest`, `--dry-run`
+  - Exemples de filtrage combiné pour cibler précisément les serveurs
+  - Cas d'usage multi-fichiers et wildcards
+
 ## [0.3.2] - 2025-10-17
 
 ### Corrigé
