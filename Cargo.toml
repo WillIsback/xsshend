@@ -12,9 +12,8 @@ categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 # SSH & Transferts (Pure Rust - No OpenSSL!)
-russh = "0.45"
-russh-sftp = "2.0"
-russh-keys = "0.45"
+russh = "0.54.6"
+russh-sftp = "2.1.1"
 
 # Async Runtime
 tokio = { version = "1", features = ["full"] }

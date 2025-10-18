@@ -1,8 +1,7 @@
 // Client SSH/SFTP pour xsshend - Implémentation Pure Rust avec russh
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use russh::client::{self, Handle};
-use russh_keys::key::PublicKey;
+use russh::keys::*;
 use russh_sftp::client::SftpSession;
 use std::path::Path;
 use std::sync::Arc;
@@ -14,13 +13,12 @@ use super::keys::{SshKey, SshKeyManager};
 /// Handler pour les événements du client SSH
 struct ClientHandler;
 
-#[async_trait]
 impl client::Handler for ClientHandler {
     type Error = anyhow::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKey,
+        _server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
         // Pour l'instant, accepter toutes les clés serveur
         // TODO: Vérifier contre known_hosts
@@ -155,12 +153,18 @@ impl SshClient {
             .context(format!("Impossible de charger la clé {}", key.name))?;
 
         // Authentification avec la clé
-        let authenticated = session
-            .authenticate_publickey(&self.username, Arc::new(key_pair))
+        let auth_result = session
+            .authenticate_publickey(
+                &self.username,
+                PrivateKeyWithHashAlg::new(
+                    Arc::new(key_pair),
+                    session.best_supported_rsa_hash().await?.flatten(),
+                ),
+            )
             .await
             .context(format!("Authentification échouée avec la clé {}", key.name))?;
 
-        if !authenticated {
+        if !auth_result.success() {
             anyhow::bail!(
                 "Authentification refusée par le serveur pour la clé {}",
                 key.name

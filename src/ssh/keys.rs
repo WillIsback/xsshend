@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use dialoguer::Password;
+use russh::keys::{decode_secret_key, PrivateKey};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -312,12 +313,9 @@ impl SshKeyManager {
     ///
     /// Tente d'abord de charger la clé sans passphrase.
     /// Si la clé est protégée, demande la passphrase de manière interactive (si mode interactif activé).
-    pub fn load_key_with_passphrase(
-        key_path: &Path,
-        interactive: bool,
-    ) -> Result<russh_keys::key::KeyPair> {
+    pub fn load_key_with_passphrase(key_path: &Path, interactive: bool) -> Result<PrivateKey> {
         // Tentative sans passphrase
-        match russh_keys::load_secret_key(key_path, None) {
+        match decode_secret_key(&std::fs::read_to_string(key_path)?, None) {
             Ok(key) => {
                 log::debug!("✅ Clé chargée sans passphrase: {}", key_path.display());
                 Ok(key)
@@ -340,10 +338,12 @@ impl SshKeyManager {
                     .interact()?;
 
                 // Charger avec passphrase
-                russh_keys::load_secret_key(key_path, Some(&passphrase)).context(format!(
-                    "Impossible de charger la clé avec la passphrase fournie: {}",
-                    key_path.display()
-                ))
+                decode_secret_key(&std::fs::read_to_string(key_path)?, Some(&passphrase)).context(
+                    format!(
+                        "Impossible de charger la clé avec la passphrase fournie: {}",
+                        key_path.display()
+                    ),
+                )
             }
         }
     }
