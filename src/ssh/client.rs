@@ -355,14 +355,18 @@ impl SshClient {
         command: &str,
         timeout: Duration,
     ) -> Result<CommandOutput> {
+        log::debug!("execute_command: '{}'", command);
+
         let handle = self
             .handle
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Connexion SSH non établie"))?;
 
+        log::debug!("Ouverture d'un canal SSH");
         let mut channel = handle.channel_open_session().await?;
 
         // Exécuter la commande
+        log::debug!("Envoi de la commande au serveur");
         channel.exec(true, command).await?;
 
         // Lire stdout et stderr
@@ -370,24 +374,45 @@ impl SshClient {
         let mut stderr = Vec::new();
         let mut exit_code: i32 = 0;
 
+        log::debug!("Lecture de la sortie (timeout: {:?})", timeout);
         let result = tokio::time::timeout(timeout, async {
             loop {
                 match channel.wait().await {
                     Some(russh::ChannelMsg::Data { ref data }) => {
+                        log::trace!("Reçu {} octets sur stdout", data.len());
                         stdout.extend_from_slice(data);
                     }
                     Some(russh::ChannelMsg::ExtendedData { ref data, .. }) => {
+                        log::trace!("Reçu {} octets sur stderr", data.len());
                         stderr.extend_from_slice(data);
                     }
                     Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
+                        log::debug!("Code de sortie: {}", exit_status);
                         exit_code = exit_status as i32;
                     }
-                    Some(russh::ChannelMsg::Eof) | None => break,
+                    Some(russh::ChannelMsg::Eof) | None => {
+                        log::debug!("Fin de la sortie (EOF)");
+                        break;
+                    }
                     _ => {}
                 }
             }
         })
         .await;
+
+        match result {
+            Ok(_) => {
+                log::debug!(
+                    "Commande terminée - stdout: {} octets, stderr: {} octets, exit: {}",
+                    stdout.len(),
+                    stderr.len(),
+                    exit_code
+                );
+            }
+            Err(_) => {
+                log::warn!("Timeout lors de l'exécution de la commande");
+            }
+        }
 
         result.context("Timeout d'exécution de la commande")?;
 

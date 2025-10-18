@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.4.9] - 2025-10-18 ✨ PHASE 4: POLISH & ENHANCEMENTS
+
+### Added
+
+- **📊 Progress Bar for Sequential Command Execution**: Visual progress indicator with elapsed time and current server being processed
+- **🔧 JSON Output Format**: New `--output-format json` option for automated parsing and CI/CD integration
+  - Structured output with summary statistics (total, success, failed, duration)
+  - Individual results with host, exit_code, stdout, stderr, duration, and success status
+  - Perfect for jq parsing and automation pipelines
+- **🔍 Enhanced Debug Logging**: Comprehensive `RUST_LOG=debug` support throughout SSH operations
+  - Connection establishment tracing
+  - Command execution details
+  - Data transfer monitoring (stdout/stderr bytes)
+  - Exit codes and timing information
+  - Trace level for verbose output
+- **📚 Documentation**: New `docs/PHASE4-FEATURES.md` with examples and usage patterns
+
+### Changed
+
+- Sequential command execution now displays progress bar by default (can be disabled in JSON mode)
+- JSON output mode automatically suppresses interactive elements for clean parsing
+- Improved logging throughout `executor.rs` and `client.rs` modules
+
+### Technical Details
+
+- Added `serde` and `serde_json` dependencies for JSON serialization
+- `CommandResult` now implements `serde::Serialize`
+- New `ExecutionSummary` struct for structured output
+- Custom duration serializer (converts Duration to f64 seconds)
+- Progress bar uses `indicatif` with `Arc<Mutex<>>` and suspend support
+- Log statements use `log::debug!`, `log::trace!`, `log::warn!` macros
+
+### Examples
+
+```bash
+# Progress bar in action
+xsshend command --inline "uptime" --env Production
+
+# JSON output for automation
+xsshend command --inline "hostname" --env Test --output-format json | jq '.summary'
+
+# Debug logging
+RUST_LOG=debug xsshend command --inline "whoami" --env Staging --verbose
+```
+
+## [0.4.8] - 2025-10-18 🎨 INTERACTIVE MODE FOR COMMANDS
+
+### Added
+
+- **Interactive mode for `xsshend command`**: Prompt-based command execution
+  - Choose between inline command or script file
+  - Interactive command/script path input with validation
+  - Environment, region, and server type selection
+  - Confirmation dialog before execution
+- New prompt functions in `prompts.rs`:
+  - `prompt_command_type()`: Choose inline vs script
+  - `prompt_inline_command()`: Enter command with validation
+  - `prompt_script_path()`: Enter script path with `.sh` validation
+  - `confirm_command_execution()`: Execution confirmation with summary
+
+### Changed
+
+- `CommandArgs` struct now includes `non_interactive` and `yes` flags
+- `Commands::Command` inherits global `--non-interactive` and `--yes` flags
+- `handle_command_execution()` refactored to support interactive prompts
+
+### Technical Details
+
+- Consistent behavior with `xsshend upload` interactive mode
+- Script validation ensures `.sh` extension and file existence
+- Production environment shows special warning (default: no confirmation)
+- Works seamlessly with `--non-interactive` for CI/CD usage
+
 ## [0.4.1] - 2025-10-18 🔒 SECURITY DOCUMENTATION
 
 ### 🔒 Sécurité

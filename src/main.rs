@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.4.8")]
+#[command(version = "0.4.9")]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
@@ -103,6 +103,10 @@ enum Commands {
         /// Afficher stderr séparément
         #[arg(long)]
         capture_stderr: bool,
+
+        /// Format de sortie (text ou json)
+        #[arg(long, default_value = "text", value_name = "FORMAT")]
+        output_format: String,
     },
 
     /// Liste les serveurs disponibles
@@ -185,6 +189,7 @@ async fn main() -> Result<()> {
             parallel,
             timeout,
             capture_stderr,
+            output_format,
         } => {
             handle_command_execution(CommandArgs {
                 inline,
@@ -195,6 +200,7 @@ async fn main() -> Result<()> {
                 parallel,
                 timeout,
                 capture_stderr,
+                output_format,
                 non_interactive: cli.non_interactive,
                 yes: cli.yes,
             })
@@ -244,6 +250,7 @@ struct CommandArgs {
     parallel: bool,
     timeout: u64,
     capture_stderr: bool,
+    output_format: String,
     non_interactive: bool,
     yes: bool,
 }
@@ -345,7 +352,10 @@ async fn handle_command_execution(args: CommandArgs) -> Result<()> {
     }
 
     // 5. Exécuter les commandes
-    println!("\n🚀 Début de l'exécution...\n");
+    if args.output_format != "json" {
+        println!("\n🚀 Début de l'exécution...\n");
+    }
+
     let executor = CommandExecutor::new();
     let results = executor
         .execute(
@@ -356,53 +366,76 @@ async fn handle_command_execution(args: CommandArgs) -> Result<()> {
         )
         .await?;
 
-    // 6. Afficher les résultats détaillés
-    println!("\n📊 Résultats détaillés:");
-    println!("{}", "=".repeat(80));
+    // 6. Afficher les résultats détaillés (seulement en mode text)
+    if args.output_format != "json" {
+        println!("\n📊 Résultats détaillés:");
+        println!("{}", "=".repeat(80));
 
-    for result in &results {
-        println!("\n▶ Serveur: {}", result.host);
-        println!("  Exit code: {}", result.exit_code);
-        println!("  Durée: {:.2}s", result.duration.as_secs_f64());
-        println!(
-            "  Statut: {}",
-            if result.success {
-                "✅ Succès"
-            } else {
-                "❌ Échec"
-            }
-        );
+        for result in &results {
+            println!("\n▶ Serveur: {}", result.host);
+            println!("  Exit code: {}", result.exit_code);
+            println!("  Durée: {:.2}s", result.duration.as_secs_f64());
+            println!(
+                "  Statut: {}",
+                if result.success {
+                    "✅ Succès"
+                } else {
+                    "❌ Échec"
+                }
+            );
 
-        if !result.stdout.is_empty() {
-            println!("\n  📤 Stdout:");
-            for line in result.stdout.lines() {
-                println!("    {}", line);
+            if !result.stdout.is_empty() {
+                println!("\n  📤 Stdout:");
+                for line in result.stdout.lines() {
+                    println!("    {}", line);
+                }
             }
+
+            if args.capture_stderr && !result.stderr.is_empty() {
+                println!("\n  ⚠️  Stderr:");
+                for line in result.stderr.lines() {
+                    println!("    {}", line);
+                }
+            }
+            println!("{}", "-".repeat(80));
         }
-
-        if args.capture_stderr && !result.stderr.is_empty() {
-            println!("\n  ⚠️  Stderr:");
-            for line in result.stderr.lines() {
-                println!("    {}", line);
-            }
-        }
-        println!("{}", "-".repeat(80));
     }
 
     // 7. Résumé final
     let success_count = results.iter().filter(|r| r.success).count();
     let total_count = results.len();
 
-    println!("\n✨ Résumé:");
-    println!("  Succès: {}/{}", success_count, total_count);
-    println!("  Échecs: {}/{}", total_count - success_count, total_count);
+    // Afficher les résultats selon le format demandé
+    if args.output_format == "json" {
+        // Format JSON pour parsing automatique
+        use crate::core::executor::ExecutionSummary;
 
-    if success_count == total_count {
-        println!("\n✅ Toutes les commandes ont été exécutées avec succès !");
-    } else if success_count > 0 {
-        println!("\n⚠️  Certaines commandes ont échoué.");
+        let summary = ExecutionSummary {
+            total: total_count,
+            success: success_count,
+            failed: total_count - success_count,
+            total_duration_secs: results.iter().map(|r| r.duration.as_secs_f64()).sum(),
+        };
+
+        let json_output = serde_json::json!({
+            "summary": summary,
+            "results": results,
+        });
+
+        println!("{}", serde_json::to_string_pretty(&json_output)?);
     } else {
-        println!("\n❌ Toutes les commandes ont échoué.");
+        // Format texte (par défaut)
+        println!("\n✨ Résumé:");
+        println!("  Succès: {}/{}", success_count, total_count);
+        println!("  Échecs: {}/{}", total_count - success_count, total_count);
+
+        if success_count == total_count {
+            println!("\n✅ Toutes les commandes ont été exécutées avec succès !");
+        } else if success_count > 0 {
+            println!("\n⚠️  Certaines commandes ont échoué.");
+        } else {
+            println!("\n❌ Toutes les commandes ont échoué.");
+        }
     }
 
     Ok(())

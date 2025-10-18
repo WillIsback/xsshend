@@ -5,6 +5,8 @@ use crate::ssh::client::SshClient;
 use crate::ssh::keys::PassphraseCache;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
+use indicatif::{ProgressBar, ProgressStyle};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Exécuteur de commandes SSH
@@ -13,14 +15,32 @@ pub struct CommandExecutor {
 }
 
 /// Résultat de l'exécution d'une commande sur un serveur
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandResult {
     pub host: String,
     pub exit_code: i32,
     pub stdout: String,
     pub stderr: String,
+    #[serde(serialize_with = "serialize_duration")]
     pub duration: Duration,
     pub success: bool,
+}
+
+/// Sérialiser Duration en nombre de secondes (float)
+fn serialize_duration<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_f64(duration.as_secs_f64())
+}
+
+/// Résumé de l'exécution pour la sortie JSON
+#[derive(Debug, serde::Serialize)]
+pub struct ExecutionSummary {
+    pub total: usize,
+    pub success: usize,
+    pub failed: usize,
+    pub total_duration_secs: f64,
 }
 
 impl CommandExecutor {
@@ -55,32 +75,69 @@ impl CommandExecutor {
     ) -> Result<Vec<CommandResult>> {
         let mut results = Vec::new();
 
-        println!(
-            "🔧 Exécution séquentielle sur {} serveur(s)...\n",
-            hosts.len()
+        // Créer la barre de progression
+        let progress = Arc::new(Mutex::new(ProgressBar::new(hosts.len() as u64)));
+        let pb = progress.lock().unwrap();
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template(
+                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
+                )
+                .unwrap()
+                .progress_chars("#>-"),
         );
+        pb.set_message("Exécution en cours...");
+        drop(pb);
 
-        for (host_name, host_entry) in hosts {
-            print!("  ▶ {} ... ", host_name);
-            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+        for (host_name, host_entry) in hosts.iter() {
+            let pb = progress.lock().unwrap();
+            pb.set_message(format!("Serveur: {}", host_name));
+            drop(pb);
 
-            match self
-                .execute_on_host(command, host_name, host_entry, timeout)
-                .await
-            {
+            // Exécuter la commande (suspendre la barre de progression)
+            let result = {
+                let pb = progress.lock().unwrap();
+                pb.suspend(|| {
+                    // Utiliser un runtime tokio existant
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            self.execute_on_host(command, host_name, host_entry, timeout)
+                                .await
+                        })
+                    })
+                })
+            };
+
+            match result {
                 Ok(result) => {
-                    if result.success {
-                        println!("✅ Succès ({:.2}s)", result.duration.as_secs_f64());
-                    } else {
-                        println!("❌ Échec - Exit code: {}", result.exit_code);
-                    }
+                    let pb = progress.lock().unwrap();
+                    pb.suspend(|| {
+                        if result.success {
+                            println!("  ✅ {} ({:.2}s)", host_name, result.duration.as_secs_f64());
+                        } else {
+                            println!("  ❌ {} - Exit code: {}", host_name, result.exit_code);
+                        }
+                    });
+                    drop(pb);
                     results.push(result);
                 }
                 Err(e) => {
-                    println!("❌ Erreur: {}", e);
+                    let pb = progress.lock().unwrap();
+                    pb.suspend(|| {
+                        println!("  ❌ {} - Erreur: {}", host_name, e);
+                    });
+                    drop(pb);
                 }
             }
+
+            let pb = progress.lock().unwrap();
+            pb.inc(1);
+            drop(pb);
         }
+
+        let pb = progress.lock().unwrap();
+        pb.finish_with_message(format!("✅ Terminé ({} serveurs)", hosts.len()));
+        drop(pb);
 
         Ok(results)
     }
@@ -137,16 +194,25 @@ impl CommandExecutor {
         host_entry: &HostEntry,
         timeout: Duration,
     ) -> Result<CommandResult> {
+        log::debug!("Début d'exécution sur {} ({})", host_name, host_entry.alias);
         let start = std::time::Instant::now();
         let (username, host) = Uploader::parse_server_alias(&host_entry.alias)?;
 
+        log::debug!("Connexion SSH à {}@{}", username, host);
         // Créer le client SSH
         let mut client = SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
         client.connect_with_timeout(Duration::from_secs(10)).await?;
 
+        log::debug!("Exécution de la commande (timeout: {:?})", timeout);
         // Exécuter la commande
         let output = client.execute_command(command, timeout).await?;
         let duration = start.elapsed();
+
+        log::debug!(
+            "Commande terminée - Exit: {}, Durée: {:?}",
+            output.exit_code,
+            duration
+        );
 
         // Déconnecter
         client.disconnect().await?;
