@@ -1,0 +1,58 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Exécuter tous les lundis à 9h UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  security-audit:
+    name: Security Audit with cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      
+      - name: Run cargo-deny check
+        run: cargo deny check
+        continue-on-error: false
+      
+      - name: Upload advisory report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-advisory-report
+          path: |
+            deny.toml
+            SECURITY.md
+
+  cargo-audit:
+    name: Dependency Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      
+      - name: Run cargo audit
+        run: cargo audit
+        continue-on-error: true
+        
+      - name: Comment on known vulnerabilities
+        run: |
+          echo "::notice::RUSTSEC-2023-0071 is a known limitation documented in SECURITY.md"
+          echo "::notice::This vulnerability affects RSA keys via russh dependency"
+          echo "::notice::Mitigation: Use Ed25519 keys and trusted networks only"

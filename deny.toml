@@ -1,0 +1,67 @@
+# Configuration cargo-deny pour xsshend
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+version = 2
+# Répertoire de base des advisories
+db-path = "~/.cargo/advisory-db"
+# URL du dépôt des advisories
+db-urls = ["https://github.com/rustsec/advisory-db"]
+
+# Vulnérabilités connues et acceptées avec justification
+[[advisories.ignore]]
+id = "RUSTSEC-2023-0071"
+reason = """
+Limitation connue de la crate `rsa 0.9.8` (dépendance transitive via `russh`).
+
+CONTEXTE:
+- Vulnérabilité: Marvin Attack - récupération potentielle de clé via canaux temporels
+- Sévérité: Moyenne (5.9/10)
+- Status: Aucun correctif disponible
+- Dépendance: russh 0.54.6 → rsa 0.9.8
+
+JUSTIFICATION D'ACCEPTATION:
+1. Pas de version corrigée disponible dans l'écosystème Rust (RustCrypto travaille dessus)
+2. russh est la bibliothèque SSH pure-Rust la plus mature et maintenue
+3. xsshend est principalement utilisé en environnement de développement/interne
+4. L'attaque nécessite l'observation active du timing réseau
+5. Peut être mitigé en utilisant des clés Ed25519 au lieu de RSA
+6. Documentation complète dans SECURITY.md
+
+MITIGATION:
+- Préférer les clés Ed25519 (non affectées)
+- Utiliser uniquement sur des réseaux de confiance
+- Éviter l'utilisation sur Internet public sans VPN
+- Surveiller https://github.com/Eugeny/russh/issues/337 pour les mises à jour
+
+Référence: https://rustsec.org/advisories/RUSTSEC-2023-0071
+"""
+
+[licenses]
+# Licences autorisées
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "0BSD",
+]
+
+# Configuration stricte - toute licence non listée sera rejetée
+confidence-threshold = 0.8
+
+[bans]
+# Interdire plusieurs versions de la même crate
+multiple-versions = "warn"
+# Autoriser les wildcards dans les dépendances (pour dev seulement)
+wildcards = "allow"
+
+[sources]
+# Autoriser uniquement crates.io et git
+unknown-registry = "deny"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

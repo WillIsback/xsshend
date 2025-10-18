@@ -4,6 +4,7 @@
 [![Documentation](https://docs.rs/xsshend/badge.svg)](https://docs.rs/xsshend)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-2021%2B-orange.svg)](https://www.rust-lang.org)
+[![Security: RUSTSEC-2023-0071](https://img.shields.io/badge/security-known%20limitation-yellow)](SECURITY.md)
 
 **xsshend** est un outil Rust moderne et efficace pour le **téléversement de fichiers vers multiples serveurs SSH**. Interface en ligne de commande simple et intuitive avec suivi en temps réel des transferts.
 
@@ -59,6 +60,20 @@ cargo install --path .
 - [**Documentation complète**](https://willisback.github.io/xsshend/)
 - [Guide d'utilisation](#-utilisation)
 - [Configuration](#%EF%B8%8F-configuration)
+- [**Politique de sécurité**](SECURITY.md)
+
+## 🔒 Note de Sécurité
+
+⚠️ **Vulnérabilité connue**: xsshend dépend de `russh` qui utilise `rsa 0.9.8`, affecté par [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071) (Marvin Attack - timing sidechannel).
+
+**Recommandations** :
+- ✅ Utilisez des **clés Ed25519** plutôt que RSA (non affectées)
+- ✅ Utilisez xsshend sur des **réseaux de confiance** (internes, VPN)
+- ⚠️ Évitez l'utilisation sur des **réseaux publics non sécurisés**
+
+**Contexte** : Aucun correctif n'est disponible actuellement. Cette vulnérabilité permet potentiellement la récupération de clés RSA via l'observation du timing réseau. Les clés Ed25519 et ECDSA ne sont pas affectées.
+
+**Détails complets** : Consultez [SECURITY.md](SECURITY.md) pour plus d'informations et les recommandations détaillées.
 
 ## ✨ Fonctionnalités principales
 
@@ -543,10 +558,50 @@ Le workflow GitHub Actions vérifie automatiquement ces critères.
 
 Ce projet est sous licence **MIT** - voir le fichier [LICENSE](LICENSE) pour les détails.
 
+## 🧪 Environnement de Test (Lab)
+
+Un environnement de test Docker complet est disponible pour valider xsshend en conditions réelles :
+
+**Documentation du Lab :**
+- **[Index du Lab](docs/LAB-INDEX.md)** - Point d'entrée principal
+- **[Guide de Démarrage](docs/LAB-README.md)** - Installation et configuration
+- **[Guide de Test](docs/LAB-TESTING-GUIDE.md)** - Tests détaillés (40+ tests)
+- **[Dépannage](docs/LAB-TROUBLESHOOTING.md)** - Résolution de problèmes
+
+**Démarrage Rapide :**
+```bash
+# 1. Setup
+git clone https://github.com/WillIsback/xsshend.git
+cd xsshend
+./scripts/lab-setup.sh
+
+# 2. Démarrer le lab (3 conteneurs : master + 2 targets)
+cd lab/
+docker-compose up -d --build
+
+# 3. Tests automatisés
+../scripts/test-lab.sh
+
+# 4. Tests manuels
+docker exec -it xsshend_master bash
+xsshend list
+xsshend upload test.txt --env Test
+```
+
+Le lab fournit :
+- ✅ Environnement ArchLinux isolé (Docker)
+- ✅ 3 conteneurs configurés (master + 2 targets SSH)
+- ✅ Clés SSH pré-configurées (RSA + Ed25519)
+- ✅ Suite de tests automatisés (40+ tests)
+- ✅ Scripts de diagnostic et dépannage
+- ✅ Documentation complète
+
+Voir **[docs/LAB-INDEX.md](docs/LAB-INDEX.md)** pour tous les détails.
+
 ## 🙏 Remerciements
 
 - **[clap-rs](https://github.com/clap-rs/clap)** pour l'excellent framework CLI
-- **[ssh2-rs](https://github.com/alexcrichton/ssh2-rs)** pour les bindings SSH robustes
+- **[russh](https://github.com/Eugeny/russh)** pour l'implémentation SSH pure Rust
 - **[indicatif](https://github.com/console-rs/indicatif)** pour les barres de progression
 - **[serde](https://github.com/serde-rs/serde)** pour la sérialisation JSON
 - Communauté **Rust** pour l'écosystème exceptionnel

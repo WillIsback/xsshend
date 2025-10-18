@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.4.1] - 2025-10-18 🔒 SECURITY DOCUMENTATION
+
+### 🔒 Sécurité
+
+- **📄 Ajout de SECURITY.md** : Documentation complète de la politique de sécurité
+- **⚠️ Documentation de RUSTSEC-2023-0071** : Vulnérabilité connue (Marvin Attack) dans `rsa 0.9.8`
+  - Dépendance transitive via `russh 0.54.6`
+  - Sévérité moyenne (5.9/10)
+  - **Aucun correctif disponible** actuellement
+  - **Recommandations** : Utiliser des clés Ed25519 et des réseaux de confiance
+- **📋 Ajout de deny.toml** : Configuration cargo-deny avec exemption documentée
+- **🔧 Workflow CI/CD** : Ajout de vérifications de sécurité automatiques (`.github/workflows/security.yml`)
+
+### 📚 Documentation
+
+- **README.md** : Ajout d'une section "Note de Sécurité" visible
+- **SECURITY.md** : Politique de sécurité complète avec :
+  - Description de la vulnérabilité RUSTSEC-2023-0071
+  - Recommandations d'utilisation sécurisée
+  - Guide de signalement de vulnérabilités
+  - Historique et statut des vulnérabilités connues
+
+### 🛡️ Mitigation
+
+**Contexte** : La crate `rsa 0.9.8` (dépendance de `russh`) contient une vulnérabilité de timing sidechannel (Marvin Attack). Bien qu'aucun correctif ne soit disponible, l'impact peut être minimisé :
+
+**✅ Utilisations SÉCURISÉES** :
+- Réseaux privés/internes
+- Connexions via VPN
+- Environnements de développement local
+- Utilisation de clés **Ed25519** (recommandé, non affectées)
+
+**⚠️ Utilisations À RISQUE** :
+- Serveurs publics sur Internet
+- Réseaux WiFi publics
+- Utilisation de clés **RSA** (affectées par la vulnérabilité)
+
+### 🔗 Références
+
+- Advisory: https://rustsec.org/advisories/RUSTSEC-2023-0071
+- Issue russh: https://github.com/Eugeny/russh/issues/337
+- Marvin Attack: https://people.redhat.com/~hkario/marvin/
+
 ## [0.4.0] - 2025-10-17 🚀 PURE RUST EDITION
 
 ### 🎉 Migration Majeure : OpenSSL → Pure Rust
