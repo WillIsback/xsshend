@@ -260,12 +260,9 @@ impl SshClient {
         Ok(())
     }
 
-    /// Téléverser un fichier
+    /// Téléverser un fichier par streaming (optimisé mémoire)
     pub async fn upload_file(&mut self, local_path: &Path, remote_path: &str) -> Result<u64> {
-        // Lire le fichier local
-        let buffer = tokio::fs::read(local_path)
-            .await
-            .with_context(|| format!("Impossible de lire le fichier local: {:?}", local_path))?;
+        use tokio::io::{AsyncReadExt, BufReader};
 
         // S'assurer que le répertoire distant existe
         if let Some(parent_dir) = Path::new(remote_path).parent() {
@@ -279,31 +276,53 @@ impl SshClient {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("Connexion SFTP non établie"))?;
 
-        // Créer le fichier distant et écrire les données
+        // Créer le fichier distant
         let mut remote_file = sftp
             .create(remote_path)
             .await
             .with_context(|| format!("Impossible de créer le fichier distant: {}", remote_path))?;
 
-        remote_file
-            .write_all(&buffer)
+        // Ouvrir le fichier local et créer un BufReader pour lecture par chunks
+        let file = tokio::fs::File::open(local_path)
             .await
-            .context("Erreur lors de l'écriture du fichier distant")?;
+            .with_context(|| format!("Impossible de lire le fichier local: {:?}", local_path))?;
+
+        let mut reader = BufReader::new(file);
+        let mut buffer = vec![0u8; 65536]; // Buffer réutilisable de 64KB
+        let mut total_bytes = 0u64;
+
+        // Lire et transférer par chunks
+        loop {
+            let n = reader
+                .read(&mut buffer)
+                .await
+                .context("Erreur lors de la lecture du fichier local")?;
+
+            if n == 0 {
+                break; // EOF atteint
+            }
+
+            remote_file
+                .write_all(&buffer[..n])
+                .await
+                .context("Erreur lors de l'écriture du fichier distant")?;
+
+            total_bytes += n as u64;
+        }
 
         remote_file
             .shutdown()
             .await
             .context("Erreur lors de la fermeture du fichier distant")?;
 
-        let size = buffer.len() as u64;
         log::debug!(
             "Fichier téléversé: {} -> {} ({} octets)",
             local_path.display(),
             remote_path,
-            size
+            total_bytes
         );
 
-        Ok(size)
+        Ok(total_bytes)
     }
 
     /// S'assurer que le répertoire distant existe

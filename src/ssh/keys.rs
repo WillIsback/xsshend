@@ -425,10 +425,16 @@ impl SshKeyManager {
                 // 3. Demander la passphrase de manière interactive
                 log::info!("🔐 La clé {} nécessite une passphrase", key_path.display());
 
+                // Ajouter un retour à la ligne avant la saisie pour plus de clarté
+                eprintln!();
+
                 let passphrase = Password::new()
                     .with_prompt(format!("Entrez la passphrase pour {}", key_path.display()))
                     .allow_empty_password(true)
                     .interact()?;
+
+                // Ajouter un retour à la ligne après la saisie
+                eprintln!();
 
                 // 4. Charger avec passphrase
                 let key = decode_secret_key(&key_content, Some(&passphrase)).context(format!(

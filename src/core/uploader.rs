@@ -60,10 +60,17 @@ impl Uploader {
             for (host_name, host_entry) in hosts {
                 progress.set_message(format!("→ {}", host_name));
 
-                match self
-                    .upload_to_single_host(file, host_entry, destination)
-                    .await
-                {
+                // Utiliser suspend() pour cacher temporairement la progress bar
+                // pendant l'authentification (qui peut demander une passphrase)
+                let result = progress.suspend(|| {
+                    // Bloquer pour exécuter le code async
+                    tokio::runtime::Handle::current().block_on(async {
+                        self.upload_to_single_host(file, host_entry, destination)
+                            .await
+                    })
+                });
+
+                match result {
                     Ok(_) => {
                         progress.println(format!("  ✅ {}", host_name));
                     }
@@ -132,8 +139,8 @@ impl Uploader {
         Ok(())
     }
 
-    /// Parse un alias serveur au format "user@host"
-    pub fn parse_server_alias(alias: &str) -> Result<(String, String)> {
+    /// Parse un alias serveur au format "user@host" (retourne des références pour éviter les allocations)
+    pub fn parse_server_alias(alias: &str) -> Result<(&str, &str)> {
         if let Some(at_pos) = alias.find('@') {
             if at_pos == 0 || at_pos == alias.len() - 1 {
                 anyhow::bail!(
@@ -141,8 +148,8 @@ impl Uploader {
                     alias
                 );
             }
-            let username = alias[..at_pos].to_string();
-            let host = alias[at_pos + 1..].to_string();
+            let username = &alias[..at_pos];
+            let host = &alias[at_pos + 1..];
             if username.is_empty() || host.is_empty() {
                 anyhow::bail!(
                     "Alias serveur invalide '{}' - format attendu: user@host",
