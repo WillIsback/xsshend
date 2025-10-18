@@ -116,7 +116,11 @@ impl CommandExecutor {
         // Afficher les résultats au fur et à mesure
         for result in results.iter().flatten() {
             if result.success {
-                println!("  ✅ {} ({:.2}s)", result.host, result.duration.as_secs_f64());
+                println!(
+                    "  ✅ {} ({:.2}s)",
+                    result.host,
+                    result.duration.as_secs_f64()
+                );
             } else {
                 println!("  ❌ {} - Exit code: {}", result.host, result.exit_code);
             }

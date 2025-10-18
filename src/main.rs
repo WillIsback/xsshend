@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.4.7")]
+#[command(version = "0.4.8")]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
@@ -195,6 +195,8 @@ async fn main() -> Result<()> {
                 parallel,
                 timeout,
                 capture_stderr,
+                non_interactive: cli.non_interactive,
+                yes: cli.yes,
             })
             .await?;
         }
@@ -242,61 +244,108 @@ struct CommandArgs {
     parallel: bool,
     timeout: u64,
     capture_stderr: bool,
+    non_interactive: bool,
+    yes: bool,
 }
 
 /// Gère l'exécution de commandes SSH
 async fn handle_command_execution(args: CommandArgs) -> Result<()> {
     use crate::core::executor::CommandExecutor;
+    use crate::interactive::{is_interactive_mode, prompts, should_prompt};
     use anyhow::Context;
 
     println!("🚀 xsshend - Exécution de commandes SSH");
 
-    // 1. Déterminer la commande à exécuter
-    let command = if let Some(inline_cmd) = args.inline {
-        inline_cmd
-    } else if let Some(script_path) = args.script {
-        tokio::fs::read_to_string(&script_path)
-            .await
-            .context(format!(
-                "Impossible de lire le script: {}",
-                script_path.display()
-            ))?
+    // Charger la configuration
+    let config = HostsConfig::load()?;
+
+    // Variables mutables pour le mode interactif
+    let mut inline_cmd = args.inline;
+    let mut script_path = args.script;
+    let mut env = args.env;
+    let mut region = args.region;
+    let mut server_type = args.server_type;
+
+    // 1. Mode interactif: compléter les arguments manquants
+    if !args.non_interactive && is_interactive_mode() {
+        println!("\n{}", "=".repeat(60));
+        println!("🎨 Mode Interactif");
+        println!("{}", "=".repeat(60));
+
+        // Type de commande (inline ou script)
+        if inline_cmd.is_none() && script_path.is_none() {
+            let cmd_type = prompts::prompt_command_type()?;
+            if cmd_type.contains("inline") {
+                inline_cmd = Some(prompts::prompt_inline_command()?);
+            } else {
+                script_path = Some(prompts::prompt_script_path()?);
+            }
+        }
+
+        // Environnement
+        if should_prompt(&env, args.non_interactive) {
+            env = Some(prompts::prompt_environment(&config)?);
+        }
+
+        // Région
+        if env.is_some() && should_prompt(&region, args.non_interactive) {
+            region = prompts::prompt_region(&config, env.as_ref().unwrap())?;
+        }
+
+        // Type de serveur
+        if env.is_some() && should_prompt(&server_type, args.non_interactive) {
+            server_type =
+                prompts::prompt_server_type(&config, env.as_ref().unwrap(), region.as_deref())?;
+        }
+    } else if args.non_interactive && inline_cmd.is_none() && script_path.is_none() {
+        // Mode explicitement non-interactif: valider les arguments
+        anyhow::bail!("❌ Argument --inline ou --script requis avec --non-interactive");
+    } else if args.non_interactive && env.is_none() {
+        anyhow::bail!("❌ Argument --env requis avec --non-interactive");
+    }
+
+    // 2. Déterminer la commande à exécuter
+    let command = if let Some(inline) = inline_cmd {
+        inline
+    } else if let Some(script) = script_path {
+        tokio::fs::read_to_string(&script).await.context(format!(
+            "Impossible de lire le script: {}",
+            script.display()
+        ))?
     } else {
         anyhow::bail!("Vous devez fournir --inline ou --script");
     };
 
-    // 2. Charger la configuration et filtrer les hôtes
-    let config = HostsConfig::load()?;
-    let target_hosts = config.filter_hosts(
-        args.env.as_ref(),
-        args.region.as_ref(),
-        args.server_type.as_ref(),
-    );
+    // 3. Filtrer les hôtes
+    let target_hosts = config.filter_hosts(env.as_ref(), region.as_ref(), server_type.as_ref());
 
     if target_hosts.is_empty() {
-        anyhow::bail!("Aucun serveur ne correspond aux critères de filtrage");
+        anyhow::bail!("❌ Aucun serveur trouvé avec les critères spécifiés");
     }
 
-    // 3. Afficher les informations
-    println!(
-        "\n📜 Commande: {}",
-        command.lines().next().unwrap_or(&command)
-    );
-    if command.lines().count() > 1 {
-        println!("   (script multi-lignes)");
-    }
-    println!("🎯 Cibles: {} serveur(s)", target_hosts.len());
-    println!("⏱️  Timeout: {}s", args.timeout);
-    println!(
-        "🔀 Mode: {}\n",
-        if args.parallel {
-            "Parallèle"
+    // 4. Confirmation
+    if !args.yes {
+        if !args.non_interactive && is_interactive_mode() {
+            let confirmed = prompts::confirm_command_execution(
+                &command,
+                &target_hosts,
+                env.as_deref().unwrap_or("Unknown"),
+                args.parallel,
+                args.timeout,
+            )?;
+
+            if !confirmed {
+                println!("❌ Exécution annulée");
+                return Ok(());
+            }
         } else {
-            "Séquentiel"
+            println!("⚠️  Utilisez --yes pour confirmer automatiquement en mode non-interactif");
+            anyhow::bail!("Confirmation requise");
         }
-    );
+    }
 
-    // 4. Exécuter les commandes
+    // 5. Exécuter les commandes
+    println!("\n🚀 Début de l'exécution...\n");
     let executor = CommandExecutor::new();
     let results = executor
         .execute(
@@ -307,7 +356,7 @@ async fn handle_command_execution(args: CommandArgs) -> Result<()> {
         )
         .await?;
 
-    // 5. Afficher les résultats détaillés
+    // 6. Afficher les résultats détaillés
     println!("\n📊 Résultats détaillés:");
     println!("{}", "=".repeat(80));
 
@@ -340,7 +389,7 @@ async fn handle_command_execution(args: CommandArgs) -> Result<()> {
         println!("{}", "-".repeat(80));
     }
 
-    // 6. Résumé final
+    // 7. Résumé final
     let success_count = results.iter().filter(|r| r.success).count();
     let total_count = results.len();
 

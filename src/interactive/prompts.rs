@@ -196,6 +196,128 @@ pub fn prompt_destination(default: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(input))
 }
 
+/// Prompt pour choisir le type de commande
+///
+/// Demande si l'utilisateur veut exécuter une commande inline ou un script
+pub fn prompt_command_type() -> Result<String> {
+    let options = vec!["Commande inline", "Script bash (.sh)"];
+
+    let selection = Select::new()
+        .with_prompt("📜 Type de commande à exécuter")
+        .items(&options)
+        .default(0)
+        .interact()?;
+
+    Ok(options[selection].to_string())
+}
+
+/// Prompt pour saisir une commande inline
+///
+/// Demande la commande à exécuter sur les serveurs
+pub fn prompt_inline_command() -> Result<String> {
+    let input: String = Input::new()
+        .with_prompt("💻 Commande à exécuter")
+        .validate_with(|input: &String| -> Result<(), String> {
+            if input.trim().is_empty() {
+                Err("La commande ne peut pas être vide".to_string())
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()?;
+
+    Ok(input.trim().to_string())
+}
+
+/// Prompt pour saisir le chemin d'un script
+///
+/// Demande le chemin du script bash à exécuter
+pub fn prompt_script_path() -> Result<PathBuf> {
+    let input: String = Input::new()
+        .with_prompt("📄 Chemin du script bash")
+        .validate_with(|input: &String| -> Result<(), String> {
+            let path = Path::new(input.trim());
+            if !path.exists() {
+                Err(format!("Le fichier {} n'existe pas", input))
+            } else if !path.is_file() {
+                Err(format!("{} n'est pas un fichier", input))
+            } else if path.extension().and_then(|e| e.to_str()) != Some("sh") {
+                Err("Le fichier doit avoir l'extension .sh".to_string())
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()?;
+
+    Ok(PathBuf::from(input.trim()))
+}
+
+/// Confirmation finale avant l'exécution de commandes
+///
+/// Affiche un récapitulatif et demande confirmation
+/// Warning spécial si environnement Production
+pub fn confirm_command_execution(
+    command: &str,
+    servers: &[(String, &HostEntry)],
+    env: &str,
+    parallel: bool,
+    timeout: u64,
+) -> Result<bool> {
+    println!("\n{}", "=".repeat(60));
+    println!("📋 RÉCAPITULATIF DE LA COMMANDE");
+    println!("{}", "=".repeat(60));
+
+    // Afficher la commande
+    let command_preview = if command.lines().count() > 1 {
+        let first_line = command.lines().next().unwrap_or("");
+        let line_count = command.lines().count();
+        format!("{}\n   ... ({} lignes au total)", first_line, line_count)
+    } else {
+        command.to_string()
+    };
+
+    println!("📜 Commande: {}", command_preview);
+    println!("\n🎯 Environnement: {}", format_environment(env));
+    println!(
+        "🖥️  Serveurs ciblés: {}",
+        format_server_count(servers.len())
+    );
+
+    // Afficher les serveurs (limité à 10)
+    for (name, entry) in servers.iter().take(10) {
+        println!("   • {} → {} ({})", name, entry.alias, entry.env);
+    }
+    if servers.len() > 10 {
+        println!("   ... et {} autre(s)", servers.len() - 10);
+    }
+
+    println!("\n⏱️  Timeout: {}s", timeout);
+    println!(
+        "🔀 Mode: {}",
+        if parallel {
+            "Parallèle"
+        } else {
+            "Séquentiel"
+        }
+    );
+    println!("{}", "=".repeat(60));
+
+    // Warning spécial pour Production
+    let default = if env.eq_ignore_ascii_case("production") {
+        println!("⚠️  ATTENTION: Vous êtes sur l'environnement PRODUCTION!");
+        false
+    } else {
+        true
+    };
+
+    let confirmed = Confirm::new()
+        .with_prompt("Confirmer l'exécution de la commande ?")
+        .default(default)
+        .interact()?;
+
+    Ok(confirmed)
+}
+
 /// Confirmation finale avant l'upload
 ///
 /// Affiche un récapitulatif et demande confirmation
