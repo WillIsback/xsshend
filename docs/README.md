@@ -1,6 +1,21 @@
 # Documentation xsshend
 
-> 🚀 Documentation complète pour xsshend - Téléversement SSH parallèle
+> 🚀 Documentation complèt## 🔒 Sécurité
+
+### Documentation Sécurité
+- **[../SECURITY.md](../SECURITY.md)** - Politique de sécurité officielle ⚠️ **LIRE AVANT PRODUCTION**
+- **[RUSTSEC-2023-0071-EXPLANATION.md](RUSTSEC-2023-0071-EXPLANATION.md)** - Explication détaillée de la limitation
+
+### ⚠️ Limitation Connue : RUSTSEC-2023-0071
+
+xsshend v0.4.1 a une **limitation de sécurité connue** (Marvin Attack dans `rsa 0.9.8`).
+
+**Mitigation** :
+- ✅ Utiliser des clés Ed25519 (recommandé)
+- ✅ Déployer sur réseaux de confiance uniquement
+- ❌ Éviter WiFi public, réseaux non sécurisés
+
+**Détails** : [RUSTSEC-2023-0071-EXPLANATION.md](RUSTSEC-2023-0071-EXPLANATION.md)Téléversement SSH parallèle
 
 ## 📖 Guides utilisateur
 
@@ -16,29 +31,22 @@
 
 ## 🧪 Environnement de Test (Lab)
 
-> Documentation complète pour tester xsshend dans un environnement Docker isolé
+> Guide complet pour tester xsshend dans un environnement Docker isolé
 
-### 🎯 Point d'Entrée
-- **[LAB-INDEX.md](LAB-INDEX.md)** - **COMMENCER ICI** - Navigation et guides par objectif
+### 📖 Documentation
+- **[LAB-GUIDE.md](LAB-GUIDE.md)** - **Guide complet consolidé** (~4800 lignes)
+  - Installation rapide (10 minutes)
+  - Architecture Docker (3 conteneurs)
+  - 40+ tests automatisés
+  - Dépannage complet
+  - FAQ et bonnes pratiques
 
-### Documentation Lab
-- **[LAB-README.md](LAB-README.md)** - Installation et configuration du lab Docker
-- **[LAB-TESTING-GUIDE.md](LAB-TESTING-GUIDE.md)** - Guide de test complet (40+ tests)
-- **[LAB-TROUBLESHOOTING.md](LAB-TROUBLESHOOTING.md)** - Dépannage et résolution de problèmes
-- **[LAB-TEST-RESULTS-TEMPLATE.md](LAB-TEST-RESULTS-TEMPLATE.md)** - Template de rapport de test
-- **[LAB-DOCUMENTATION-SUMMARY.md](LAB-DOCUMENTATION-SUMMARY.md)** - Résumé de la documentation lab
-
-### Scripts Lab
-- `../scripts/lab-setup.sh` - Configuration initiale du lab
-- `../scripts/test-lab.sh` - Suite de tests automatisés (40+ tests)
-- `../scripts/lab-diagnostic.sh` - Diagnostic rapide de l'environnement
-
-### Démarrage Rapide Lab
+### 🚀 Démarrage Rapide
 ```bash
 # 1. Setup
 ./scripts/lab-setup.sh
 
-# 2. Démarrer (3 conteneurs : master + 2 targets)
+# 2. Démarrer (master + 2 targets)
 cd lab/
 docker-compose up -d --build
 
@@ -51,7 +59,10 @@ xsshend list
 xsshend upload test.txt --env Test
 ```
 
-**Total documentation lab** : 6 fichiers (~2850 lignes) + 3 scripts (~790 lignes)
+### Scripts
+- `scripts/lab-setup.sh` - Configuration initiale
+- `scripts/test-lab.sh` - Suite de tests (40+ tests)
+- `scripts/lab-diagnostic.sh` - Diagnostic rapide
 
 ## � Sécurité
 

@@ -69,6 +69,14 @@ impl SshClient {
 
         // Créer le canal SFTP
         let channel = session.channel_open_session().await?;
+
+        // Demander le sous-système SFTP (étape cruciale !)
+        channel
+            .request_subsystem(true, "sftp")
+            .await
+            .context("Impossible de demander le sous-système SFTP")?;
+
+        // Créer la session SFTP
         let sftp = SftpSession::new(channel.into_stream())
             .await
             .context("Impossible de créer la session SFTP")?;
