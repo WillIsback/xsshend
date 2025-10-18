@@ -1,6 +1,6 @@
 [package]
 name = "xsshend"
-version = "0.4.9"
+version = "0.5.1"
 edition = "2021"
 description = "Simple CLI tool for uploading files to multiple SSH servers"
 license = "MIT"
@@ -24,7 +24,6 @@ futures = "0.3"
 indicatif = "0.17"
 dialoguer = "0.12"
 console = "0.16.1"
-atty = "0.2"
 
 # CLI & Configuration
 clap = { version = "4.4", features = ["derive"] }

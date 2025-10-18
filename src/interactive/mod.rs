@@ -7,13 +7,13 @@
 pub mod formatters;
 pub mod prompts;
 
-use atty::Stream;
+use std::io::IsTerminal;
 
 /// Détermine si l'application est en mode interactif
 ///
 /// Retourne `true` si stdin et stdout sont des terminaux (TTY)
 pub fn is_interactive_mode() -> bool {
-    atty::is(Stream::Stdin) && atty::is(Stream::Stdout)
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
 }
 
 /// Détermine si un prompt doit être affiché pour compléter une valeur manquante

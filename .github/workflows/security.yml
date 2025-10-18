@@ -48,11 +48,5 @@ jobs:
         run: cargo install cargo-audit
       
       - name: Run cargo audit
-        run: cargo audit
-        continue-on-error: true
-        
-      - name: Comment on known vulnerabilities
-        run: |
-          echo "::notice::RUSTSEC-2023-0071 is a known limitation documented in SECURITY.md"
-          echo "::notice::This vulnerability affects RSA keys via russh dependency"
-          echo "::notice::Mitigation: Use Ed25519 keys and trusted networks only"
+        run: cargo audit --ignore RUSTSEC-2023-0071
+        continue-on-error: false

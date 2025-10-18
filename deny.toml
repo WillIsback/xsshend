@@ -49,6 +49,11 @@ allow = [
     "Unicode-DFS-2016",
     "Unlicense",
     "0BSD",
+    # Licences supplémentaires pour les dépendances
+    "OpenSSL",
+    "MPL-2.0",
+    "CC0-1.0",
+    "Unicode-3.0",
 ]
 
 # Configuration stricte - toute licence non listée sera rejetée
