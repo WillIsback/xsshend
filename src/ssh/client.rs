@@ -348,6 +348,63 @@ impl SshClient {
         log::debug!("Connexion SSH fermée avec {}@{}", self.username, self.host);
         Ok(())
     }
+
+    /// Exécuter une commande SSH et capturer la sortie
+    pub async fn execute_command(
+        &mut self,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<CommandOutput> {
+        let handle = self
+            .handle
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("Connexion SSH non établie"))?;
+
+        let mut channel = handle.channel_open_session().await?;
+
+        // Exécuter la commande
+        channel.exec(true, command).await?;
+
+        // Lire stdout et stderr
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let mut exit_code: i32 = 0;
+
+        let result = tokio::time::timeout(timeout, async {
+            loop {
+                match channel.wait().await {
+                    Some(russh::ChannelMsg::Data { ref data }) => {
+                        stdout.extend_from_slice(data);
+                    }
+                    Some(russh::ChannelMsg::ExtendedData { ref data, .. }) => {
+                        stderr.extend_from_slice(data);
+                    }
+                    Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
+                        exit_code = exit_status as i32;
+                    }
+                    Some(russh::ChannelMsg::Eof) | None => break,
+                    _ => {}
+                }
+            }
+        })
+        .await;
+
+        result.context("Timeout d'exécution de la commande")?;
+
+        Ok(CommandOutput {
+            stdout: String::from_utf8_lossy(&stdout).to_string(),
+            stderr: String::from_utf8_lossy(&stderr).to_string(),
+            exit_code,
+        })
+    }
+}
+
+/// Sortie d'une commande SSH exécutée
+#[derive(Debug, Clone)]
+pub struct CommandOutput {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
 }
 
 impl Drop for SshClient {

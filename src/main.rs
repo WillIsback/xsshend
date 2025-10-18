@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.4.6")]
+#[command(version = "0.4.7")]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
@@ -68,6 +68,41 @@ enum Commands {
         /// Simulation sans transfert réel
         #[arg(long)]
         dry_run: bool,
+    },
+
+    /// Exécute une commande SSH sur plusieurs serveurs
+    Command {
+        /// Commande inline à exécuter
+        #[arg(long, conflicts_with = "script", value_name = "COMMAND")]
+        inline: Option<String>,
+
+        /// Fichier script à exécuter
+        #[arg(long, conflicts_with = "inline", value_name = "FILE")]
+        script: Option<PathBuf>,
+
+        /// Environnement cible
+        #[arg(long, value_name = "ENV")]
+        env: Option<String>,
+
+        /// Région cible
+        #[arg(long, value_name = "REGION")]
+        region: Option<String>,
+
+        /// Type de serveur
+        #[arg(long, short = 't', value_name = "TYPE")]
+        server_type: Option<String>,
+
+        /// Exécution parallèle (défaut: séquentiel)
+        #[arg(long)]
+        parallel: bool,
+
+        /// Timeout par commande en secondes
+        #[arg(long, default_value = "30", value_name = "SECS")]
+        timeout: u64,
+
+        /// Afficher stderr séparément
+        #[arg(long)]
+        capture_stderr: bool,
     },
 
     /// Liste les serveurs disponibles
@@ -141,6 +176,28 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Commands::Command {
+            inline,
+            script,
+            env,
+            region,
+            server_type,
+            parallel,
+            timeout,
+            capture_stderr,
+        } => {
+            handle_command_execution(CommandArgs {
+                inline,
+                script,
+                env,
+                region,
+                server_type,
+                parallel,
+                timeout,
+                capture_stderr,
+            })
+            .await?;
+        }
         Commands::List => {
             println!("🔍 Liste des cibles SSH disponibles:\n");
 
@@ -173,6 +230,133 @@ struct UploadArgs {
     non_interactive: bool,
     yes: bool,
     key: Option<PathBuf>,
+}
+
+/// Arguments pour la commande command
+struct CommandArgs {
+    inline: Option<String>,
+    script: Option<PathBuf>,
+    env: Option<String>,
+    region: Option<String>,
+    server_type: Option<String>,
+    parallel: bool,
+    timeout: u64,
+    capture_stderr: bool,
+}
+
+/// Gère l'exécution de commandes SSH
+async fn handle_command_execution(args: CommandArgs) -> Result<()> {
+    use crate::core::executor::CommandExecutor;
+    use anyhow::Context;
+
+    println!("🚀 xsshend - Exécution de commandes SSH");
+
+    // 1. Déterminer la commande à exécuter
+    let command = if let Some(inline_cmd) = args.inline {
+        inline_cmd
+    } else if let Some(script_path) = args.script {
+        tokio::fs::read_to_string(&script_path)
+            .await
+            .context(format!(
+                "Impossible de lire le script: {}",
+                script_path.display()
+            ))?
+    } else {
+        anyhow::bail!("Vous devez fournir --inline ou --script");
+    };
+
+    // 2. Charger la configuration et filtrer les hôtes
+    let config = HostsConfig::load()?;
+    let target_hosts = config.filter_hosts(
+        args.env.as_ref(),
+        args.region.as_ref(),
+        args.server_type.as_ref(),
+    );
+
+    if target_hosts.is_empty() {
+        anyhow::bail!("Aucun serveur ne correspond aux critères de filtrage");
+    }
+
+    // 3. Afficher les informations
+    println!(
+        "\n📜 Commande: {}",
+        command.lines().next().unwrap_or(&command)
+    );
+    if command.lines().count() > 1 {
+        println!("   (script multi-lignes)");
+    }
+    println!("🎯 Cibles: {} serveur(s)", target_hosts.len());
+    println!("⏱️  Timeout: {}s", args.timeout);
+    println!(
+        "🔀 Mode: {}\n",
+        if args.parallel {
+            "Parallèle"
+        } else {
+            "Séquentiel"
+        }
+    );
+
+    // 4. Exécuter les commandes
+    let executor = CommandExecutor::new();
+    let results = executor
+        .execute(
+            &command,
+            &target_hosts,
+            args.parallel,
+            std::time::Duration::from_secs(args.timeout),
+        )
+        .await?;
+
+    // 5. Afficher les résultats détaillés
+    println!("\n📊 Résultats détaillés:");
+    println!("{}", "=".repeat(80));
+
+    for result in &results {
+        println!("\n▶ Serveur: {}", result.host);
+        println!("  Exit code: {}", result.exit_code);
+        println!("  Durée: {:.2}s", result.duration.as_secs_f64());
+        println!(
+            "  Statut: {}",
+            if result.success {
+                "✅ Succès"
+            } else {
+                "❌ Échec"
+            }
+        );
+
+        if !result.stdout.is_empty() {
+            println!("\n  📤 Stdout:");
+            for line in result.stdout.lines() {
+                println!("    {}", line);
+            }
+        }
+
+        if args.capture_stderr && !result.stderr.is_empty() {
+            println!("\n  ⚠️  Stderr:");
+            for line in result.stderr.lines() {
+                println!("    {}", line);
+            }
+        }
+        println!("{}", "-".repeat(80));
+    }
+
+    // 6. Résumé final
+    let success_count = results.iter().filter(|r| r.success).count();
+    let total_count = results.len();
+
+    println!("\n✨ Résumé:");
+    println!("  Succès: {}/{}", success_count, total_count);
+    println!("  Échecs: {}/{}", total_count - success_count, total_count);
+
+    if success_count == total_count {
+        println!("\n✅ Toutes les commandes ont été exécutées avec succès !");
+    } else if success_count > 0 {
+        println!("\n⚠️  Certaines commandes ont échoué.");
+    } else {
+        println!("\n❌ Toutes les commandes ont échoué.");
+    }
+
+    Ok(())
 }
 
 /// Gère la commande upload avec mode interactif
