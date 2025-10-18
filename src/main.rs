@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.4.1")]
+#[command(version = "0.4.2")]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
