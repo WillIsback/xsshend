@@ -2,15 +2,20 @@
 use crate::config::HostEntry;
 use crate::core::validator::Validator;
 use crate::ssh::client::SshClient;
+use crate::ssh::keys::PassphraseCache;
 use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
 
-pub struct Uploader;
+pub struct Uploader {
+    passphrase_cache: PassphraseCache,
+}
 
 impl Uploader {
     pub fn new() -> Self {
-        Uploader
+        Uploader {
+            passphrase_cache: PassphraseCache::new(),
+        }
     }
 
     /// Téléverse plusieurs fichiers vers plusieurs serveurs (simplifié)
@@ -97,7 +102,7 @@ impl Uploader {
         Ok(())
     }
 
-    /// Téléverse un fichier vers un seul serveur
+    /// Téléverse un fichier vers un seul serveur (utilise le cache partagé)
     async fn upload_to_single_host(
         &self,
         file: &Path,
@@ -106,7 +111,9 @@ impl Uploader {
     ) -> Result<()> {
         let (username, host) = Self::parse_server_alias(&host_entry.alias)?;
 
-        let mut client = SshClient::new(&host, &username)?;
+        // Créer le client avec le cache partagé
+        let mut client =
+            SshClient::new_with_cache(&host, &username, self.passphrase_cache.clone())?;
 
         client
             .connect_with_timeout(std::time::Duration::from_secs(10))

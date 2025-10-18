@@ -1,8 +1,72 @@
 use anyhow::{anyhow, Context, Result};
 use dialoguer::Password;
 use russh::keys::{decode_secret_key, PrivateKey};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
+
+/// Cache global de passphrases pour éviter de redemander plusieurs fois
+#[derive(Clone)]
+pub struct PassphraseCache {
+    cache: Arc<RwLock<HashMap<PathBuf, String>>>,
+}
+
+impl PassphraseCache {
+    /// Créer un nouveau cache vide
+    pub fn new() -> Self {
+        Self {
+            cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Obtenir une passphrase du cache
+    pub fn get(&self, key_path: &Path) -> Option<String> {
+        self.cache
+            .read()
+            .ok()
+            .and_then(|cache| cache.get(key_path).cloned())
+    }
+
+    /// Ajouter une passphrase au cache
+    pub fn set(&self, key_path: PathBuf, passphrase: String) {
+        if let Ok(mut cache) = self.cache.write() {
+            cache.insert(key_path, passphrase);
+        }
+    }
+
+    /*     /// Vérifier si une clé est dans le cache
+    pub fn contains(&self, key_path: &Path) -> bool {
+        self.cache
+            .read()
+            .ok()
+            .map(|cache| cache.contains_key(key_path))
+            .unwrap_or(false)
+    }
+
+    /// Effacer tout le cache (pour sécurité)
+    pub fn clear(&self) {
+        if let Ok(mut cache) = self.cache.write() {
+            cache.clear();
+        }
+    }
+
+    /// Obtenir le nombre d'entrées dans le cache
+    pub fn len(&self) -> usize {
+        self.cache.read().ok().map(|cache| cache.len()).unwrap_or(0)
+    }
+
+    /// Vérifier si le cache est vide
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    } */
+}
+
+impl Default for PassphraseCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Représente une clé SSH disponible
 #[derive(Debug, Clone, PartialEq)]
@@ -309,19 +373,48 @@ impl SshKeyManager {
         &self.keys
     }
 
-    /// Charge une clé SSH avec gestion de passphrase interactive
+    /// Charge une clé SSH avec gestion de passphrase interactive et cache
     ///
     /// Tente d'abord de charger la clé sans passphrase.
-    /// Si la clé est protégée, demande la passphrase de manière interactive (si mode interactif activé).
-    pub fn load_key_with_passphrase(key_path: &Path, interactive: bool) -> Result<PrivateKey> {
+    /// Si la clé est protégée, vérifie le cache puis demande la passphrase de manière interactive.
+    /// Si un cache est fourni, la passphrase est ajoutée au cache après utilisation réussie.
+    pub fn load_key_with_passphrase(
+        key_path: &Path,
+        interactive: bool,
+        cache: Option<&PassphraseCache>,
+    ) -> Result<PrivateKey> {
+        let key_content = std::fs::read_to_string(key_path)?;
+
         // Tentative sans passphrase
-        match decode_secret_key(&std::fs::read_to_string(key_path)?, None) {
+        match decode_secret_key(&key_content, None) {
             Ok(key) => {
                 log::debug!("✅ Clé chargée sans passphrase: {}", key_path.display());
                 Ok(key)
             }
             Err(_) => {
-                // La clé nécessite probablement une passphrase
+                // La clé nécessite une passphrase
+
+                // 1. Vérifier le cache si disponible
+                if let Some(cache) = cache {
+                    if let Some(cached_passphrase) = cache.get(key_path) {
+                        log::debug!(
+                            "🔑 Utilisation de la passphrase en cache pour: {}",
+                            key_path.display()
+                        );
+                        match decode_secret_key(&key_content, Some(&cached_passphrase)) {
+                            Ok(key) => return Ok(key),
+                            Err(_) => {
+                                log::warn!(
+                                    "⚠️  Passphrase en cache invalide pour {}, redemande nécessaire",
+                                    key_path.display()
+                                );
+                                // Continuer pour demander une nouvelle passphrase
+                            }
+                        }
+                    }
+                }
+
+                // 2. Mode non-interactif : échouer
                 if !interactive {
                     anyhow::bail!(
                         "La clé {} nécessite une passphrase. Utilisez le mode interactif ou configurez ssh-agent.",
@@ -329,7 +422,7 @@ impl SshKeyManager {
                     );
                 }
 
-                // Demander la passphrase de manière interactive
+                // 3. Demander la passphrase de manière interactive
                 log::info!("🔐 La clé {} nécessite une passphrase", key_path.display());
 
                 let passphrase = Password::new()
@@ -337,13 +430,19 @@ impl SshKeyManager {
                     .allow_empty_password(true)
                     .interact()?;
 
-                // Charger avec passphrase
-                decode_secret_key(&std::fs::read_to_string(key_path)?, Some(&passphrase)).context(
-                    format!(
-                        "Impossible de charger la clé avec la passphrase fournie: {}",
-                        key_path.display()
-                    ),
-                )
+                // 4. Charger avec passphrase
+                let key = decode_secret_key(&key_content, Some(&passphrase)).context(format!(
+                    "Impossible de charger la clé avec la passphrase fournie: {}",
+                    key_path.display()
+                ))?;
+
+                // 5. Ajouter au cache si fourni
+                if let Some(cache) = cache {
+                    cache.set(key_path.to_path_buf(), passphrase);
+                    log::debug!("✅ Passphrase mise en cache pour: {}", key_path.display());
+                }
+
+                Ok(key)
             }
         }
     }

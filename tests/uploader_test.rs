@@ -40,7 +40,7 @@ mod uploader_tests {
 
     #[tokio::test]
     async fn test_uploader_default() {
-        let _uploader = Uploader;
+        let _uploader = Uploader::default();
         // Test que Default trait fonctionne
     }
 

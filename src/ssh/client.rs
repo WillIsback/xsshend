@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 
-use super::keys::{SshKey, SshKeyManager};
+use super::agent::SshAgentManager;
+use super::keys::{PassphraseCache, SshKey, SshKeyManager};
 
 /// Handler pour les événements du client SSH
 struct ClientHandler;
@@ -26,24 +27,26 @@ impl client::Handler for ClientHandler {
     }
 }
 
-/// Client SSH/SFTP asynchrone
+/// Client SSH/SFTP asynchrone avec support ssh-agent et cache de passphrases
 pub struct SshClient {
     handle: Option<Handle<ClientHandler>>,
     sftp: Option<SftpSession>,
     host: String,
     username: String,
     port: u16,
+    passphrase_cache: PassphraseCache,
 }
 
 impl SshClient {
-    /// Créer un nouveau client SSH
-    pub fn new(host: &str, username: &str) -> Result<Self> {
+    /// Créer un nouveau client SSH avec un cache de passphrases partagé
+    pub fn new_with_cache(host: &str, username: &str, cache: PassphraseCache) -> Result<Self> {
         Ok(SshClient {
             handle: None,
             sftp: None,
             host: host.to_string(),
             username: username.to_string(),
             port: 22,
+            passphrase_cache: cache,
         })
     }
 
@@ -92,15 +95,20 @@ impl SshClient {
         Ok(())
     }
 
-    /// Authentification SSH - essaie toutes les méthodes disponibles
-    async fn authenticate(&self, session: &mut Handle<ClientHandler>) -> Result<()> {
-        // Essayer ssh-agent en premier si disponible
+    /// Authentification SSH - Stratégie multi-niveaux
+    /// 1. ssh-agent (si disponible)
+    /// 2. Clés locales avec cache de passphrases
+    /// 3. Demande interactive de passphrase
+    async fn authenticate(&mut self, session: &mut Handle<ClientHandler>) -> Result<()> {
+        // Niveau 1: Essayer ssh-agent en premier
+        log::debug!("🔐 Tentative d'authentification avec ssh-agent...");
         if self.try_ssh_agent_auth(session).await? {
+            log::info!("✅ Authentification réussie via ssh-agent");
             return Ok(());
         }
 
-        // Si ssh-agent échoue, essayer toutes les clés disponibles
-        log::debug!("ssh-agent non disponible, essai avec les clés locales");
+        // Niveau 2 & 3: Clés locales avec cache de passphrases
+        log::debug!("🔑 ssh-agent non disponible, essai avec les clés locales");
 
         if let Ok(key_manager) = SshKeyManager::new() {
             let keys = key_manager.get_all_keys();
@@ -142,22 +150,92 @@ impl SshClient {
     }
 
     /// Essayer l'authentification via ssh-agent
-    async fn try_ssh_agent_auth(&self, _session: &mut Handle<ClientHandler>) -> Result<bool> {
-        // russh ne supporte pas ssh-agent directement de la même manière
-        // On va essayer avec les clés disponibles à la place
-        log::debug!("Tentative avec les clés locales (ssh-agent non supporté pour l'instant)");
+    async fn try_ssh_agent_auth(&self, session: &mut Handle<ClientHandler>) -> Result<bool> {
+        // Essayer de se connecter à ssh-agent
+        let agent = match SshAgentManager::try_connect().await {
+            Some(agent) => agent,
+            None => {
+                log::debug!("ℹ️  ssh-agent non disponible");
+                return Ok(false);
+            }
+        };
+
+        // Récupérer les identités de l'agent
+        let identities = match agent.list_identities().await {
+            Ok(ids) => ids,
+            Err(e) => {
+                log::warn!("⚠️  Impossible de lister les identités ssh-agent: {}", e);
+                return Ok(false);
+            }
+        };
+
+        if identities.is_empty() {
+            log::debug!("ℹ️  ssh-agent ne contient aucune clé");
+            return Ok(false);
+        }
+
+        log::debug!("🔑 {} clé(s) trouvée(s) dans ssh-agent", identities.len());
+
+        // Obtenir le client agent pour l'authentification
+        let agent_client = match agent.get_client() {
+            Some(client) => client,
+            None => {
+                log::warn!("⚠️  Impossible d'obtenir le client ssh-agent");
+                return Ok(false);
+            }
+        };
+
+        // Essayer chaque identité de l'agent
+        for public_key in identities {
+            log::debug!(
+                "🔑 Tentative avec clé ssh-agent: {}",
+                public_key.algorithm()
+            );
+
+            // Utiliser authenticate_publickey_with avec le signer AgentClient
+            let mut agent_lock = agent_client.lock().await;
+
+            match session
+                .authenticate_publickey_with(
+                    &self.username,
+                    public_key.clone(),
+                    None, // hash_alg - None pour auto
+                    &mut *agent_lock,
+                )
+                .await
+            {
+                Ok(auth_result) if auth_result.success() => {
+                    log::debug!("✅ Authentification réussie avec clé ssh-agent");
+                    return Ok(true);
+                }
+                Ok(_) => {
+                    log::debug!("❌ Authentification refusée pour cette clé ssh-agent");
+                    continue;
+                }
+                Err(e) => {
+                    log::debug!("❌ Erreur d'authentification ssh-agent: {}", e);
+                    continue;
+                }
+            }
+        }
+
+        log::debug!("ℹ️  Aucune clé ssh-agent n'a fonctionné");
         Ok(false)
     }
 
-    /// Authentification avec une clé spécifique
+    /// Authentification avec une clé spécifique (utilise le cache de passphrases)
     async fn authenticate_with_key(
-        &self,
+        &mut self,
         session: &mut Handle<ClientHandler>,
         key: &SshKey,
     ) -> Result<()> {
-        // Charger la clé privée avec gestion de passphrase interactive si nécessaire
-        let key_pair = SshKeyManager::load_key_with_passphrase(&key.private_key_path, true)
-            .context(format!("Impossible de charger la clé {}", key.name))?;
+        // Charger la clé privée avec gestion de passphrase et cache
+        let key_pair = SshKeyManager::load_key_with_passphrase(
+            &key.private_key_path,
+            true,
+            Some(&self.passphrase_cache),
+        )
+        .context(format!("Impossible de charger la clé {}", key.name))?;
 
         // Authentification avec la clé
         let auth_result = session
