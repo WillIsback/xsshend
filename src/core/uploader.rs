@@ -1,11 +1,14 @@
-// Module principal d'orchestration des téléversements (simplifié)
+// Module principal d'orchestration des téléversements (avec uploads parallèles)
 use crate::config::HostEntry;
 use crate::core::validator::Validator;
 use crate::ssh::client::SshClient;
 use crate::ssh::keys::PassphraseCache;
 use anyhow::{Context, Result};
+use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct Uploader {
     passphrase_cache: PassphraseCache,
@@ -56,32 +59,66 @@ impl Uploader {
                 .unwrap()
                 .progress_chars("#>-"));
 
-            let mut file_success = true;
-            for (host_name, host_entry) in hosts {
-                progress.set_message(format!("→ {}", host_name));
+            // Créer un Arc<Mutex<ProgressBar>> pour partager entre les tâches
+            let progress_arc = Arc::new(Mutex::new(progress));
 
-                // Utiliser suspend() pour cacher temporairement la progress bar
-                // pendant l'authentification (qui peut demander une passphrase)
-                let result = progress.suspend(|| {
-                    // Bloquer pour exécuter le code async
-                    tokio::runtime::Handle::current().block_on(async {
-                        self.upload_to_single_host(file, host_entry, destination)
-                            .await
-                    })
-                });
+            // Préparer les futures pour uploads parallèles
+            let upload_futures = hosts.iter().map(|(host_name, host_entry)| {
+                let file = file.to_owned();
+                let host_name = host_name.clone();
+                let host_entry = (*host_entry).clone();
+                let destination = destination.to_owned();
+                let cache = self.passphrase_cache.clone();
+                let progress_clone = Arc::clone(&progress_arc);
 
-                match result {
-                    Ok(_) => {
-                        progress.println(format!("  ✅ {}", host_name));
+                async move {
+                    // Mettre à jour le message de la progress bar
+                    {
+                        let progress = progress_clone.lock().await;
+                        progress.set_message(format!("→ {}", host_name));
                     }
-                    Err(e) => {
-                        progress.println(format!("  ❌ {} : {}", host_name, e));
-                        file_success = false;
+
+                    // Créer un uploader temporaire avec le cache partagé
+                    let uploader = Uploader {
+                        passphrase_cache: cache,
+                    };
+
+                    // Exécuter l'upload
+                    let result = uploader
+                        .upload_to_single_host(file, &host_entry, &destination)
+                        .await;
+
+                    // Mettre à jour la progress bar
+                    {
+                        let progress = progress_clone.lock().await;
+                        match &result {
+                            Ok(_) => {
+                                progress.println(format!("  ✅ {}", host_name));
+                            }
+                            Err(e) => {
+                                progress.println(format!("  ❌ {} : {}", host_name, e));
+                            }
+                        }
+                        progress.inc(1);
                     }
+
+                    (host_name, result)
                 }
-                progress.inc(1);
+            });
+
+            // Exécuter les uploads en parallèle (max 10 connexions simultanées)
+            let results: Vec<_> = stream::iter(upload_futures)
+                .buffer_unordered(10)
+                .collect()
+                .await;
+
+            // Vérifier les résultats
+            let file_success = results.iter().all(|(_, result)| result.is_ok());
+
+            {
+                let progress = progress_arc.lock().await;
+                progress.finish();
             }
-            progress.finish();
 
             if file_success {
                 println!("✅ Fichier {} téléversé avec succès", file.display());
@@ -119,8 +156,7 @@ impl Uploader {
         let (username, host) = Self::parse_server_alias(&host_entry.alias)?;
 
         // Créer le client avec le cache partagé
-        let mut client =
-            SshClient::new_with_cache(&host, &username, self.passphrase_cache.clone())?;
+        let mut client = SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
 
         client
             .connect_with_timeout(std::time::Duration::from_secs(10))
