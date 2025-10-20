@@ -180,15 +180,19 @@ pub fn prompt_server_type(
 /// Prompt pour la destination
 ///
 /// Demande le répertoire de destination sur les serveurs distants
+/// Accepte les chemins absolus (/path), variables d'environnement ($HOME, $USER, etc.) et ~ (tilde)
 pub fn prompt_destination(default: &str) -> Result<PathBuf> {
     let input: String = Input::new()
         .with_prompt("📂 Répertoire de destination")
         .default(default.to_string())
         .validate_with(|input: &String| -> Result<(), String> {
-            if input.starts_with('/') {
+            let trimmed = input.trim();
+            if trimmed.is_empty() {
+                Err("Le chemin ne peut pas être vide".to_string())
+            } else if trimmed.starts_with('/') || trimmed.starts_with('$') || trimmed.starts_with('~') {
                 Ok(())
             } else {
-                Err("Le chemin doit être absolu (commencer par /)".to_string())
+                Err("Le chemin doit être absolu (/path), utiliser une variable d'environnement ($HOME, $USER, etc.) ou ~ pour le répertoire home".to_string())
             }
         })
         .interact_text()?;
@@ -389,17 +393,4 @@ pub fn confirm_upload(
         .interact()?;
 
     Ok(confirmed)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_prompt_destination_validation() {
-        // Ce test vérifie que la logique de validation fonctionne
-        // Note: L'interaction réelle ne peut pas être testée facilement
-        let path = PathBuf::from("/tmp");
-        assert!(path.is_absolute());
-    }
 }

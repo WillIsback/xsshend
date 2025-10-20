@@ -35,6 +35,8 @@ pub struct SshClient {
     username: String,
     port: u16,
     passphrase_cache: PassphraseCache,
+    /// Répertoire HOME réel récupéré du serveur distant
+    remote_home: Option<String>,
 }
 
 impl SshClient {
@@ -47,6 +49,7 @@ impl SshClient {
             username: username.to_string(),
             port: 22,
             passphrase_cache: cache,
+            remote_home: None,
         })
     }
 
@@ -87,10 +90,14 @@ impl SshClient {
         self.handle = Some(session);
         self.sftp = Some(sftp);
 
+        // Récupérer le répertoire HOME réel du serveur distant
+        self.fetch_remote_home().await?;
+
         log::debug!(
-            "✅ Connexion SSH établie avec {}@{}",
+            "✅ Connexion SSH établie avec {}@{} (HOME: {})",
             self.username,
-            self.host
+            self.host,
+            self.remote_home.as_deref().unwrap_or("unknown")
         );
         Ok(())
     }
@@ -323,6 +330,51 @@ impl SshClient {
         );
 
         Ok(total_bytes)
+    }
+
+    /// Récupérer le répertoire HOME réel du serveur distant
+    async fn fetch_remote_home(&mut self) -> Result<()> {
+        // Essayer d'abord avec 'pwd' (répertoire de connexion = HOME)
+        if let Ok(output) = self.execute_command("pwd", Duration::from_secs(5)).await {
+            if output.exit_code == 0 {
+                let home = output.stdout.trim();
+                if !home.is_empty() {
+                    self.remote_home = Some(home.to_string());
+                    log::debug!("📂 HOME détecté via pwd: {}", home);
+                    return Ok(());
+                }
+            }
+        }
+
+        // Fallback avec 'echo $HOME'
+        if let Ok(output) = self
+            .execute_command("echo $HOME", Duration::from_secs(5))
+            .await
+        {
+            if output.exit_code == 0 {
+                let home = output.stdout.trim();
+                if !home.is_empty() && home != "$HOME" {
+                    self.remote_home = Some(home.to_string());
+                    log::debug!("📂 HOME détecté via $HOME: {}", home);
+                    return Ok(());
+                }
+            }
+        }
+
+        // Dernier recours : supposer /home/username
+        let fallback_home = format!("/home/{}", self.username);
+        self.remote_home = Some(fallback_home.clone());
+        log::warn!(
+            "⚠️  Impossible de détecter HOME, utilisation de fallback: {}",
+            fallback_home
+        );
+
+        Ok(())
+    }
+
+    /// Obtenir le répertoire HOME réel du serveur distant
+    pub fn get_remote_home(&self) -> Option<&str> {
+        self.remote_home.as_deref()
     }
 
     /// S'assurer que le répertoire distant existe

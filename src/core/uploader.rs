@@ -3,6 +3,7 @@ use crate::config::HostEntry;
 use crate::core::validator::Validator;
 use crate::ssh::client::SshClient;
 use crate::ssh::keys::PassphraseCache;
+use crate::utils::path_expansion;
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
@@ -163,10 +164,16 @@ impl Uploader {
             .await?;
 
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
-        let full_destination = if destination.ends_with('/') {
-            format!("{}{}", destination, file_name)
+
+        // Expansion des variables d'environnement et tilde côté client
+        let expanded_destination =
+            path_expansion::expand_path(destination, username, client.get_remote_home())
+                .context("Erreur lors de l'expansion du chemin de destination")?;
+
+        let full_destination = if expanded_destination.ends_with('/') {
+            format!("{}{}", expanded_destination, file_name)
         } else {
-            format!("{}/{}", destination, file_name)
+            format!("{}/{}", expanded_destination, file_name)
         };
 
         client.upload_file(file, &full_destination).await?;

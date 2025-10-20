@@ -1,4 +1,33 @@
 # Changelog
+## [0.5.2] - 2025-01-20
+
+### 🎯 Nouvelles Fonctionnalités
+- ✅ **Expansion des chemins intelligente**: Support `$HOME`, `$USER`, `~`
+- ✅ **Multi-utilisateurs**: Gestion automatique des HOME personnalisés (`/appli/home/user`)
+- ✅ **Récupération dynamique**: HOME réel récupéré via SSH pour chaque utilisateur
+- ✅ **Validation améliorée**: Accepte chemins absolus, variables env et tilde
+
+### 🔧 Améliorations Techniques
+- ✅ Tests complets d'expansion des chemins (6 tests unitaires)
+- ✅ Fonction `expand_path()` avec fallback intelligent
+- ✅ Support des configurations SSH non-standard
+
+### 🐛 Corrections
+- ✅ Fix validation restrictive des destinations (bloquait `$HOME/work`)
+- ✅ Correction imports pour tests d'intégration
+- ✅ Clippy warnings résolus
+
+### 💡 Cas d'Usage Supportés
+```bash
+# Variables d'environnement
+xsshend upload file.txt --destination "$HOME/work/tmp"
+
+# Tilde personnel
+xsshend upload file.txt --destination "~/documents"
+
+# HOME personnalisés (ex: /appli/home/user)
+# Détection automatique via SSH
+```
 
 ## [0.5.0] - 2025-01-XX 🎉 OFFICIAL RELEASE
 
@@ -15,12 +44,12 @@ This is the official v0.5.0 release of **xsshend**, marking the completion of al
 
 ### What's New in v0.5.0
 
-- **📚 Complete Documentation Overhaul**: 
+- **📚 Complete Documentation Overhaul**:
   - Fully rewritten README.md with comprehensive examples for both upload and command features
   - Updated all documentation in `/docs` to reflect final feature set
   - Removed intermediate Phase 4 documentation files (now integrated into main docs)
-  
-- **🎯 Production-Ready**: 
+
+- **🎯 Production-Ready**:
   - Successfully tested v0.4.9 in real-world conditions
   - 118 tests passing with 0 warnings
   - Clean, professional documentation for official release
