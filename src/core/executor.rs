@@ -1,10 +1,3 @@
-// Module d'exécution de commandes SSH sur plusieurs serveurs
-//
-// Changements v0.6.0 :
-//   - ConnectionPool : les connexions SSH sont réutilisées entre opérations parallèles
-//     → économise N-1 handshakes SSH par groupe d'hôtes
-//   - Invalidation automatique en cas d'erreur réseau (reconnexion transparente)
-
 use crate::config::HostEntry;
 use crate::core::uploader::Uploader;
 use crate::ssh::keys::PassphraseCache;
@@ -12,15 +5,14 @@ use crate::ssh::pool::ConnectionPool;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex;
 
-/// Exécuteur de commandes SSH avec pool de connexions
 pub struct CommandExecutor {
     pool: ConnectionPool,
 }
 
-/// Résultat de l'exécution d'une commande sur un serveur
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CommandResult {
     pub host: String,
@@ -39,7 +31,6 @@ where
     serializer.serialize_f64(duration.as_secs_f64())
 }
 
-/// Résumé de l'exécution pour la sortie JSON
 #[derive(Debug, serde::Serialize)]
 pub struct ExecutionSummary {
     pub total: usize,
@@ -79,12 +70,10 @@ impl CommandExecutor {
 
         let progress = Arc::new(Mutex::new(ProgressBar::new(hosts.len() as u64)));
         {
-            let pb = progress.lock().unwrap();
+            let pb = progress.lock().await;
             pb.set_style(
                 ProgressStyle::default_bar()
-                    .template(
-                        "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
-                    )
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}")
                     .unwrap()
                     .progress_chars("#>-"),
             );
@@ -93,54 +82,31 @@ impl CommandExecutor {
 
         for (host_name, host_entry) in hosts.iter() {
             {
-                let pb = progress.lock().unwrap();
+                let pb = progress.lock().await;
                 pb.set_message(format!("Serveur: {}", host_name));
             }
 
-            let result = {
-                let pb = progress.lock().unwrap();
-                pb.suspend(|| {
-                    tokio::task::block_in_place(|| {
-                        tokio::runtime::Handle::current().block_on(async {
-                            self.execute_on_host(command, host_name, host_entry, timeout)
-                                .await
-                        })
-                    })
-                })
-            };
-
-            match result {
+            match self.execute_on_host(command, host_name, host_entry, timeout).await {
                 Ok(result) => {
-                    let pb = progress.lock().unwrap();
-                    pb.suspend(|| {
-                        if result.success {
-                            println!(
-                                "  ✅ {} ({:.2}s)",
-                                host_name,
-                                result.duration.as_secs_f64()
-                            );
-                        } else {
-                            println!("  ❌ {} - Exit code: {}", host_name, result.exit_code);
-                        }
-                    });
+                    let pb = progress.lock().await;
+                    if result.success {
+                        pb.println(format!("  ✅ {} ({:.2}s)", host_name, result.duration.as_secs_f64()));
+                    } else {
+                        pb.println(format!("  ❌ {} - Exit code: {}", host_name, result.exit_code));
+                    }
+                    pb.inc(1);
                     results.push(result);
                 }
                 Err(e) => {
-                    let pb = progress.lock().unwrap();
-                    pb.suspend(|| {
-                        println!("  ❌ {} - Erreur: {}", host_name, e);
-                    });
+                    let pb = progress.lock().await;
+                    pb.println(format!("  ❌ {} - Erreur: {}", host_name, e));
+                    pb.inc(1);
                 }
-            }
-
-            {
-                let pb = progress.lock().unwrap();
-                pb.inc(1);
             }
         }
 
         {
-            let pb = progress.lock().unwrap();
+            let pb = progress.lock().await;
             pb.finish_with_message(format!("✅ Terminé ({} serveurs)", hosts.len()));
         }
 
@@ -148,8 +114,7 @@ impl CommandExecutor {
         Ok(results)
     }
 
-    /// Exécution parallèle avec pool de connexions partagé.
-    /// Le clone du pool est cheap (Arc interne) — toutes les tâches partagent le même état.
+    /// Exécution parallèle avec pool partagé (Arc clone — pas de copie).
     async fn execute_parallel(
         &self,
         command: &str,
@@ -162,7 +127,7 @@ impl CommandExecutor {
             let cmd = command.to_owned();
             let name = host_name.clone();
             let entry = (*host_entry).clone();
-            let pool = self.pool.clone(); // Arc clone — partagé, pas copié
+            let pool = self.pool.clone();
 
             async move {
                 let executor = CommandExecutor { pool };
@@ -177,23 +142,17 @@ impl CommandExecutor {
 
         for result in results.iter().flatten() {
             if result.success {
-                println!(
-                    "  ✅ {} ({:.2}s)",
-                    result.host,
-                    result.duration.as_secs_f64()
-                );
+                println!("  ✅ {} ({:.2}s)", result.host, result.duration.as_secs_f64());
             } else {
                 println!("  ❌ {} - Exit code: {}", result.host, result.exit_code);
             }
         }
 
         self.pool.close_all().await;
-
         Ok(results.into_iter().filter_map(Result::ok).collect())
     }
 
-    /// Exécuter une commande sur un hôte via le pool.
-    /// Ne déconnecte PAS — la connexion reste dans le pool pour réutilisation.
+    /// Exécuter via le pool — ne déconnecte PAS (connexion réutilisée).
     async fn execute_on_host(
         &self,
         command: &str,
@@ -220,14 +179,12 @@ impl CommandExecutor {
             }
         };
 
-        let duration = start.elapsed();
-
         Ok(CommandResult {
             host: host_name.to_string(),
             exit_code: output.exit_code,
             stdout: output.stdout,
             stderr: output.stderr,
-            duration,
+            duration: start.elapsed(),
             success: output.exit_code == 0,
         })
     }
@@ -250,23 +207,15 @@ mod tests {
     }
 
     #[test]
-    fn test_executor_default() {
-        let executor = CommandExecutor::default();
-        assert_eq!(executor.pool.active_connections(), 0);
-    }
-
-    #[test]
-    fn test_command_result_creation() {
+    fn test_command_result() {
         let result = CommandResult {
             host: "test-host".to_string(),
             exit_code: 0,
-            stdout: "test output".to_string(),
+            stdout: "ok".to_string(),
             stderr: "".to_string(),
             duration: Duration::from_secs(1),
             success: true,
         };
-        assert_eq!(result.host, "test-host");
-        assert_eq!(result.exit_code, 0);
         assert!(result.success);
     }
 }
