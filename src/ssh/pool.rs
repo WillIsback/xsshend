@@ -59,8 +59,7 @@ impl ConnectionPool {
         }
 
         log::debug!("🔌 Nouvelle connexion SSH : {}@{}", username, host);
-        let mut client =
-            SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
+        let mut client = SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
         client.connect_with_timeout(CONNECT_TIMEOUT).await?;
 
         let arc = Arc::new(Mutex::new(client));

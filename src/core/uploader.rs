@@ -81,13 +81,9 @@ impl Uploader {
                         progress.set_message(format!("→ {}", host_name));
                     }
 
-                    let result = Self::upload_to_single_host_pooled(
-                        pool,
-                        &file,
-                        &host_entry,
-                        &destination,
-                    )
-                    .await;
+                    let result =
+                        Self::upload_to_single_host_pooled(pool, file, &host_entry, &destination)
+                            .await;
 
                     {
                         let progress = progress_clone.lock().await;

@@ -86,13 +86,23 @@ impl CommandExecutor {
                 pb.set_message(format!("Serveur: {}", host_name));
             }
 
-            match self.execute_on_host(command, host_name, host_entry, timeout).await {
+            match self
+                .execute_on_host(command, host_name, host_entry, timeout)
+                .await
+            {
                 Ok(result) => {
                     let pb = progress.lock().await;
                     if result.success {
-                        pb.println(format!("  ✅ {} ({:.2}s)", host_name, result.duration.as_secs_f64()));
+                        pb.println(format!(
+                            "  ✅ {} ({:.2}s)",
+                            host_name,
+                            result.duration.as_secs_f64()
+                        ));
                     } else {
-                        pb.println(format!("  ❌ {} - Exit code: {}", host_name, result.exit_code));
+                        pb.println(format!(
+                            "  ❌ {} - Exit code: {}",
+                            host_name, result.exit_code
+                        ));
                     }
                     pb.inc(1);
                     results.push(result);
@@ -135,14 +145,15 @@ impl CommandExecutor {
             }
         });
 
-        let results: Vec<_> = stream::iter(futures)
-            .buffer_unordered(10)
-            .collect()
-            .await;
+        let results: Vec<_> = stream::iter(futures).buffer_unordered(10).collect().await;
 
         for result in results.iter().flatten() {
             if result.success {
-                println!("  ✅ {} ({:.2}s)", result.host, result.duration.as_secs_f64());
+                println!(
+                    "  ✅ {} ({:.2}s)",
+                    result.host,
+                    result.duration.as_secs_f64()
+                );
             } else {
                 println!("  ❌ {} - Exit code: {}", result.host, result.exit_code);
             }

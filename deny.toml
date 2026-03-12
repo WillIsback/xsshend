@@ -6,43 +6,6 @@ version = 2
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
-# ── Analyse RUSTSEC-2023-0071 (Marvin Attack / rsa crate) ──────────
-#
-# STATUS v0.6.0 : PARTIELLEMENT MITIGÉ
-#
-# Le crate `rsa 0.9.8` reste dans le graphe de dépendances via :
-#   russh → internal-russh-forked-ssh-key → rsa
-# Il est utilisé UNIQUEMENT pour le parsing/sérialisation des clés RSA.
-#
-# MITIGATION PRINCIPALE (v0.6.0) :
-#   russh = { features = ["aws-lc-rs"] } est maintenant explicite.
-#   Les opérations cryptographiques SSH (signatures, échanges de clés)
-#   passent par aws-lc-rs qui implémente RSA en constant-time.
-#   → L'attaque Marvin requiert d'observer le timing des opérations
-#     de signature/déchiffrement. Celles-ci se font via aws-lc-rs, non rsa.
-#
-# RISQUE RÉSIDUEL :
-#   Si une clé RSA privée est chargée depuis le disque, `internal-russh-forked-ssh-key`
-#   utilise `rsa` pour le parsing. Selon le chemin de code, rsa::decrypt()
-#   pourrait être appelé lors du déchiffrement de la clé (passphrase).
-#   Ce chemin est local (pas réseau) → risque d'exploitation très faible.
-#
-# RECOMMANDATION :
-#   Utiliser des clés Ed25519 (non affectées, aucun appel à rsa::*).
-#   ssh-keygen -t ed25519 -C "votre@email.com"
-#
-# SUIVI UPSTREAM : https://github.com/Eugeny/russh/issues/337
-#
-[[advisories.ignore]]
-id = "RUSTSEC-2023-0071"
-reason = """
-Partiellement mitigé en v0.6.0 via features = ['aws-lc-rs'] sur russh.
-Les opérations SSH crypto utilisent aws-lc-rs (constant-time).
-Risque résiduel : parsing de clés RSA locales via internal-russh-forked-ssh-key.
-Mitigation : utiliser des clés Ed25519 (recommandé et documenté).
-Suivi : https://github.com/Eugeny/russh/issues/337
-"""
-
 [licenses]
 allow = [
     "MIT",
