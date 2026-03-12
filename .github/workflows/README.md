@@ -101,3 +101,24 @@ Add these badges to your README.md:
 - **Benchmark Execution**: Tracks performance regression
 - **Test Suite Timing**: Monitors test execution time
 - **Build Performance**: Tracks compilation times across platforms
+## 🤖 GitHub Agentic Workflows (v0.6.0+)
+
+Ces workflows utilisent Claude Code pour automatiser la maintenance du repo.
+Ils nécessitent le secret `ANTHROPIC_API_KEY` dans les Settings → Secrets du repo.
+
+| Fichier `.md` | Déclencheur | Action |
+|---|---|---|
+| `agent-ci-fix.md` | Échec CI sur PR/feature branch | Analyse logs, fix auto (fmt/lint mineur) ou ouvre une issue |
+| `agent-issue-triage.md` | Nouvelle issue / lundi 8h | Labellise, répond, rapport hebdo |
+| `agent-pr-review.md` | PR ouverte/mise à jour vers `main` | Checklist stabilité (version, CHANGELOG, tests, deps) |
+
+### Setup requis
+
+```
+GitHub Repo → Settings → Secrets and variables → Actions → New repository secret
+Nom : ANTHROPIC_API_KEY
+Valeur : sk-ant-...
+```
+
+Les `.lock.yml` sont les GitHub Actions exécutables correspondants (générés manuellement
+faute de `gh-aw` dans cet environnement — référence : https://github.github.com/gh-aw/).
