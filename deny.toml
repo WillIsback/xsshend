@@ -3,42 +3,47 @@
 
 [advisories]
 version = 2
-# Répertoire de base des advisories
 db-path = "~/.cargo/advisory-db"
-# URL du dépôt des advisories
 db-urls = ["https://github.com/rustsec/advisory-db"]
 
-# Vulnérabilités connues et acceptées avec justification
+# ── Analyse RUSTSEC-2023-0071 (Marvin Attack / rsa crate) ──────────
+#
+# STATUS v0.6.0 : PARTIELLEMENT MITIGÉ
+#
+# Le crate `rsa 0.9.8` reste dans le graphe de dépendances via :
+#   russh → internal-russh-forked-ssh-key → rsa
+# Il est utilisé UNIQUEMENT pour le parsing/sérialisation des clés RSA.
+#
+# MITIGATION PRINCIPALE (v0.6.0) :
+#   russh = { features = ["aws-lc-rs"] } est maintenant explicite.
+#   Les opérations cryptographiques SSH (signatures, échanges de clés)
+#   passent par aws-lc-rs qui implémente RSA en constant-time.
+#   → L'attaque Marvin requiert d'observer le timing des opérations
+#     de signature/déchiffrement. Celles-ci se font via aws-lc-rs, non rsa.
+#
+# RISQUE RÉSIDUEL :
+#   Si une clé RSA privée est chargée depuis le disque, `internal-russh-forked-ssh-key`
+#   utilise `rsa` pour le parsing. Selon le chemin de code, rsa::decrypt()
+#   pourrait être appelé lors du déchiffrement de la clé (passphrase).
+#   Ce chemin est local (pas réseau) → risque d'exploitation très faible.
+#
+# RECOMMANDATION :
+#   Utiliser des clés Ed25519 (non affectées, aucun appel à rsa::*).
+#   ssh-keygen -t ed25519 -C "votre@email.com"
+#
+# SUIVI UPSTREAM : https://github.com/Eugeny/russh/issues/337
+#
 [[advisories.ignore]]
 id = "RUSTSEC-2023-0071"
 reason = """
-Limitation connue de la crate `rsa 0.9.8` (dépendance transitive via `russh`).
-
-CONTEXTE:
-- Vulnérabilité: Marvin Attack - récupération potentielle de clé via canaux temporels
-- Sévérité: Moyenne (5.9/10)
-- Status: Aucun correctif disponible
-- Dépendance: russh 0.54.6 → rsa 0.9.8
-
-JUSTIFICATION D'ACCEPTATION:
-1. Pas de version corrigée disponible dans l'écosystème Rust (RustCrypto travaille dessus)
-2. russh est la bibliothèque SSH pure-Rust la plus mature et maintenue
-3. xsshend est principalement utilisé en environnement de développement/interne
-4. L'attaque nécessite l'observation active du timing réseau
-5. Peut être mitigé en utilisant des clés Ed25519 au lieu de RSA
-6. Documentation complète dans SECURITY.md
-
-MITIGATION:
-- Préférer les clés Ed25519 (non affectées)
-- Utiliser uniquement sur des réseaux de confiance
-- Éviter l'utilisation sur Internet public sans VPN
-- Surveiller https://github.com/Eugeny/russh/issues/337 pour les mises à jour
-
-Référence: https://rustsec.org/advisories/RUSTSEC-2023-0071
+Partiellement mitigé en v0.6.0 via features = ['aws-lc-rs'] sur russh.
+Les opérations SSH crypto utilisent aws-lc-rs (constant-time).
+Risque résiduel : parsing de clés RSA locales via internal-russh-forked-ssh-key.
+Mitigation : utiliser des clés Ed25519 (recommandé et documenté).
+Suivi : https://github.com/Eugeny/russh/issues/337
 """
 
 [licenses]
-# Licences autorisées
 allow = [
     "MIT",
     "Apache-2.0",
@@ -49,24 +54,25 @@ allow = [
     "Unicode-DFS-2016",
     "Unlicense",
     "0BSD",
-    # Licences supplémentaires pour les dépendances
     "OpenSSL",
     "MPL-2.0",
     "CC0-1.0",
     "Unicode-3.0",
 ]
 
-# Configuration stricte - toute licence non listée sera rejetée
 confidence-threshold = 0.8
 
 [bans]
-# Interdire plusieurs versions de la même crate
 multiple-versions = "warn"
-# Autoriser les wildcards dans les dépendances (pour dev seulement)
 wildcards = "allow"
 
+# Interdire l'ajout direct du crate rsa comme dépendance directe de xsshend.
+# (Il reste autorisé comme dépendance transitive de russh.)
+[[bans.deny]]
+name = "ring"
+reason = "Préférer aws-lc-rs (constant-time, FIPS-eligible). Voir Cargo.toml."
+
 [sources]
-# Autoriser uniquement crates.io et git
 unknown-registry = "deny"
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

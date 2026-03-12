@@ -1,8 +1,14 @@
 // Module principal d'orchestration des téléversements (avec uploads parallèles)
+//
+// Changements v0.6.0 :
+//   - ConnectionPool : les connexions SSH sont réutilisées entre les fichiers
+//     5 fichiers → 3 serveurs = 3 connexions au lieu de 15
+//   - Buffer SFTP 256KB (était 64KB) : meilleur débit sur connexions à haute latence
+
 use crate::config::HostEntry;
 use crate::core::validator::Validator;
-use crate::ssh::client::SshClient;
 use crate::ssh::keys::PassphraseCache;
+use crate::ssh::pool::ConnectionPool;
 use crate::utils::path_expansion;
 use anyhow::{Context, Result};
 use futures::stream::{self, StreamExt};
@@ -12,24 +18,23 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct Uploader {
-    passphrase_cache: PassphraseCache,
+    pool: ConnectionPool,
 }
 
 impl Uploader {
     pub fn new() -> Self {
         Uploader {
-            passphrase_cache: PassphraseCache::new(),
+            pool: ConnectionPool::new(PassphraseCache::new()),
         }
     }
 
-    /// Téléverse plusieurs fichiers vers plusieurs serveurs (simplifié)
+    /// Téléverse plusieurs fichiers vers plusieurs serveurs (connexions poolées)
     pub async fn upload_files(
         &self,
         files: &[&Path],
         hosts: &[(String, &HostEntry)],
         destination: &str,
     ) -> Result<()> {
-        // Validation des fichiers
         for file in files {
             Validator::validate_file(file)
                 .with_context(|| format!("Validation échouée pour {}", file.display()))?;
@@ -60,45 +65,35 @@ impl Uploader {
                 .unwrap()
                 .progress_chars("#>-"));
 
-            // Créer un Arc<Mutex<ProgressBar>> pour partager entre les tâches
             let progress_arc = Arc::new(Mutex::new(progress));
 
-            // Préparer les futures pour uploads parallèles
             let upload_futures = hosts.iter().map(|(host_name, host_entry)| {
                 let file = file.to_owned();
                 let host_name = host_name.clone();
                 let host_entry = (*host_entry).clone();
                 let destination = destination.to_owned();
-                let cache = self.passphrase_cache.clone();
+                let pool = self.pool.clone(); // Arc clone — pool partagé
                 let progress_clone = Arc::clone(&progress_arc);
 
                 async move {
-                    // Mettre à jour le message de la progress bar
                     {
                         let progress = progress_clone.lock().await;
                         progress.set_message(format!("→ {}", host_name));
                     }
 
-                    // Créer un uploader temporaire avec le cache partagé
-                    let uploader = Uploader {
-                        passphrase_cache: cache,
-                    };
+                    let result = Self::upload_to_single_host_pooled(
+                        pool,
+                        &file,
+                        &host_entry,
+                        &destination,
+                    )
+                    .await;
 
-                    // Exécuter l'upload
-                    let result = uploader
-                        .upload_to_single_host(file, &host_entry, &destination)
-                        .await;
-
-                    // Mettre à jour la progress bar
                     {
                         let progress = progress_clone.lock().await;
                         match &result {
-                            Ok(_) => {
-                                progress.println(format!("  ✅ {}", host_name));
-                            }
-                            Err(e) => {
-                                progress.println(format!("  ❌ {} : {}", host_name, e));
-                            }
+                            Ok(_) => progress.println(format!("  ✅ {}", host_name)),
+                            Err(e) => progress.println(format!("  ❌ {} : {}", host_name, e)),
                         }
                         progress.inc(1);
                     }
@@ -107,13 +102,11 @@ impl Uploader {
                 }
             });
 
-            // Exécuter les uploads en parallèle (max 10 connexions simultanées)
             let results: Vec<_> = stream::iter(upload_futures)
                 .buffer_unordered(10)
                 .collect()
                 .await;
 
-            // Vérifier les résultats
             let file_success = results.iter().all(|(_, result)| result.is_ok());
 
             {
@@ -129,7 +122,13 @@ impl Uploader {
             }
         }
 
-        // Résumé final
+        // Fermer proprement les connexions poolées après tous les transferts
+        self.pool.close_all().await;
+        log::debug!(
+            "Pool uploader fermé ({} connexion(s) fermée(s))",
+            self.pool.active_connections()
+        );
+
         if failed_files.is_empty() {
             println!("\n✅ Téléversement terminé avec succès!");
         } else {
@@ -147,25 +146,22 @@ impl Uploader {
         Ok(())
     }
 
-    /// Téléverse un fichier vers un seul serveur (utilise le cache partagé)
-    async fn upload_to_single_host(
-        &self,
+    /// Upload d'un fichier vers un hôte via le pool de connexions.
+    /// Réutilise la connexion SSH si elle existe déjà pour cet hôte.
+    async fn upload_to_single_host_pooled(
+        pool: ConnectionPool,
         file: &Path,
         host_entry: &HostEntry,
         destination: &str,
     ) -> Result<()> {
         let (username, host) = Self::parse_server_alias(&host_entry.alias)?;
+        let host_key = format!("{}@{}", username, host);
 
-        // Créer le client avec le cache partagé
-        let mut client = SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
-
-        client
-            .connect_with_timeout(std::time::Duration::from_secs(10))
-            .await?;
+        let (client_arc, _permit) = pool.acquire(&host_key, username, host).await?;
+        let mut client = client_arc.lock().await;
 
         let file_name = file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
 
-        // Expansion des variables d'environnement et tilde côté client
         let expanded_destination =
             path_expansion::expand_path(destination, username, client.get_remote_home())
                 .context("Erreur lors de l'expansion du chemin de destination")?;
@@ -176,13 +172,17 @@ impl Uploader {
             format!("{}/{}", expanded_destination, file_name)
         };
 
-        client.upload_file(file, &full_destination).await?;
-        client.disconnect().await?;
-
-        Ok(())
+        match client.upload_file(file, &full_destination).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                drop(client);
+                pool.invalidate(&host_key);
+                Err(e)
+            }
+        }
     }
 
-    /// Parse un alias serveur au format "user@host" (retourne des références pour éviter les allocations)
+    /// Parse un alias serveur au format "user@host"
     pub fn parse_server_alias(alias: &str) -> Result<(&str, &str)> {
         if let Some(at_pos) = alias.find('@') {
             if at_pos == 0 || at_pos == alias.len() - 1 {

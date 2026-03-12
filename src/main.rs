@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.5.2")]
+#[command(version = "0.6.0")]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
@@ -107,6 +107,53 @@ enum Commands {
         /// Format de sortie (text ou json)
         #[arg(long, default_value = "text", value_name = "FORMAT")]
         output_format: String,
+    },
+
+    /// Recherche un pattern dans les logs de plusieurs serveurs en parallèle
+    ///
+    /// Exemple : déboguer un utilisateur derrière un load balancer WebLogic
+    ///   xsshend grep jdupont --log-path "/u01/oracle/wls/logs/*.log" \
+    ///     --env Production --type WebLogic --first-match
+    Grep {
+        /// Pattern à rechercher (syntaxe grep POSIX étendue)
+        #[arg(value_name = "PATTERN")]
+        pattern: String,
+
+        /// Chemin des logs sur les serveurs distants (globs shell supportés)
+        #[arg(long, default_value = "/var/log/app/*.log", value_name = "PATH")]
+        log_path: String,
+
+        /// Lignes de contexte autour de chaque match (équivalent grep -C)
+        #[arg(long, short = 'C', default_value_t = 3, value_name = "N")]
+        context: u8,
+
+        /// Stopper après le premier serveur ayant des résultats
+        #[arg(long)]
+        first_match: bool,
+
+        /// Environnement cible
+        #[arg(long, value_name = "ENV")]
+        env: Option<String>,
+
+        /// Région cible
+        #[arg(long, value_name = "REGION")]
+        region: Option<String>,
+
+        /// Type de serveur
+        #[arg(long, short = 't', value_name = "TYPE")]
+        server_type: Option<String>,
+
+        /// Timeout par serveur en secondes
+        #[arg(long, default_value = "30", value_name = "SECS")]
+        timeout: u64,
+
+        /// Format de sortie (text ou json)
+        #[arg(long, default_value = "text", value_name = "FORMAT")]
+        output_format: String,
+
+        /// Forcer sans confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Liste les serveurs disponibles
@@ -206,6 +253,33 @@ async fn main() -> Result<()> {
             })
             .await?;
         }
+        Commands::Grep {
+            pattern,
+            log_path,
+            context,
+            first_match,
+            env,
+            region,
+            server_type,
+            timeout,
+            output_format,
+            yes,
+        } => {
+            handle_grep(GrepArgs {
+                pattern,
+                log_path,
+                context,
+                first_match,
+                env,
+                region,
+                server_type,
+                timeout,
+                output_format,
+                yes,
+                non_interactive: cli.non_interactive,
+            })
+            .await?;
+        }
         Commands::List => {
             println!("🔍 Liste des cibles SSH disponibles:\n");
 
@@ -238,6 +312,135 @@ struct UploadArgs {
     non_interactive: bool,
     yes: bool,
     key: Option<PathBuf>,
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Sous-commande grep
+// ─────────────────────────────────────────────────────────────────
+
+struct GrepArgs {
+    pattern: String,
+    log_path: String,
+    context: u8,
+    first_match: bool,
+    env: Option<String>,
+    region: Option<String>,
+    server_type: Option<String>,
+    timeout: u64,
+    output_format: String,
+    yes: bool,
+    non_interactive: bool,
+}
+
+/// Gère la sous-commande `grep`
+async fn handle_grep(args: GrepArgs) -> Result<()> {
+    use crate::core::grep::GrepExecutor;
+
+    println!("🔍 xsshend grep - Recherche dans les logs distants");
+
+    let config = HostsConfig::load()?;
+    let target_hosts =
+        config.filter_hosts(args.env.as_ref(), args.region.as_ref(), args.server_type.as_ref());
+
+    if target_hosts.is_empty() {
+        anyhow::bail!("❌ Aucun serveur trouvé avec les critères spécifiés");
+    }
+
+    println!(
+        "🎯 {} serveur(s) ciblé(s) | pattern: '{}' | logs: {}{}",
+        target_hosts.len(),
+        args.pattern,
+        args.log_path,
+        if args.first_match { " | 🏁 first-match" } else { "" }
+    );
+
+    if !args.yes && !args.non_interactive {
+        use crate::interactive::is_interactive_mode;
+        if is_interactive_mode() {
+            let confirmed = dialoguer::Confirm::new()
+                .with_prompt(format!(
+                    "Lancer le grep sur {} serveur(s) ?",
+                    target_hosts.len()
+                ))
+                .default(true)
+                .interact()?;
+            if !confirmed {
+                println!("❌ Opération annulée");
+                return Ok(());
+            }
+        }
+    }
+
+    println!();
+    let executor = GrepExecutor::new();
+    let timeout = std::time::Duration::from_secs(args.timeout);
+
+    let results = executor
+        .grep(
+            &args.pattern,
+            &args.log_path,
+            &target_hosts,
+            args.context,
+            args.first_match,
+            timeout,
+        )
+        .await?;
+
+    // ── Affichage des résultats ──────────────────────────────────
+
+    if args.output_format == "json" {
+        println!("{}", serde_json::to_string_pretty(&results)?);
+        return Ok(());
+    }
+
+    // Format texte
+    let found: Vec<_> = results.iter().filter(|r| r.found()).collect();
+    let not_found: Vec<_> = results.iter().filter(|r| !r.found()).collect();
+
+    if found.is_empty() {
+        println!("🔍 Pattern '{}' non trouvé sur aucun serveur.", args.pattern);
+        if !not_found.is_empty() {
+            println!(
+                "   (vérifié sur {} serveur(s) : {})",
+                not_found.len(),
+                not_found
+                    .iter()
+                    .map(|r| r.host.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+        }
+        return Ok(());
+    }
+
+    println!(
+        "✅ Pattern '{}' trouvé sur {}/{} serveur(s):\n",
+        args.pattern,
+        found.len(),
+        results.len()
+    );
+
+    for result in &found {
+        println!("▶ {} ({} ligne(s))", result.host, result.match_count);
+        println!("{}", "─".repeat(60));
+        for line in &result.matches {
+            println!("  {}", line);
+        }
+        println!();
+    }
+
+    if !not_found.is_empty() {
+        println!(
+            "ℹ️  Pas de résultat sur : {}",
+            not_found
+                .iter()
+                .map(|r| r.host.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+
+    Ok(())
 }
 
 /// Arguments pour la commande command
