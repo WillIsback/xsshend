@@ -1,17 +1,23 @@
 // Module d'exécution de commandes SSH sur plusieurs serveurs
+//
+// Changements v0.6.0 :
+//   - ConnectionPool : les connexions SSH sont réutilisées entre opérations parallèles
+//     → économise N-1 handshakes SSH par groupe d'hôtes
+//   - Invalidation automatique en cas d'erreur réseau (reconnexion transparente)
+
 use crate::config::HostEntry;
 use crate::core::uploader::Uploader;
-use crate::ssh::client::SshClient;
 use crate::ssh::keys::PassphraseCache;
+use crate::ssh::pool::ConnectionPool;
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-/// Exécuteur de commandes SSH
+/// Exécuteur de commandes SSH avec pool de connexions
 pub struct CommandExecutor {
-    passphrase_cache: PassphraseCache,
+    pool: ConnectionPool,
 }
 
 /// Résultat de l'exécution d'une commande sur un serveur
@@ -26,7 +32,6 @@ pub struct CommandResult {
     pub success: bool,
 }
 
-/// Sérialiser Duration en nombre de secondes (float)
 fn serialize_duration<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
@@ -44,14 +49,12 @@ pub struct ExecutionSummary {
 }
 
 impl CommandExecutor {
-    /// Créer un nouveau exécuteur de commandes
     pub fn new() -> Self {
         CommandExecutor {
-            passphrase_cache: PassphraseCache::new(),
+            pool: ConnectionPool::new(PassphraseCache::new()),
         }
     }
 
-    /// Exécuter une commande sur plusieurs hôtes
     pub async fn execute(
         &self,
         command: &str,
@@ -66,7 +69,6 @@ impl CommandExecutor {
         }
     }
 
-    /// Exécution séquentielle (un serveur à la fois)
     async fn execute_sequential(
         &self,
         command: &str,
@@ -75,30 +77,29 @@ impl CommandExecutor {
     ) -> Result<Vec<CommandResult>> {
         let mut results = Vec::new();
 
-        // Créer la barre de progression
         let progress = Arc::new(Mutex::new(ProgressBar::new(hosts.len() as u64)));
-        let pb = progress.lock().unwrap();
-        pb.set_style(
-            ProgressStyle::default_bar()
-                .template(
-                    "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
-                )
-                .unwrap()
-                .progress_chars("#>-"),
-        );
-        pb.set_message("Exécution en cours...");
-        drop(pb);
+        {
+            let pb = progress.lock().unwrap();
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template(
+                        "{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} {msg}",
+                    )
+                    .unwrap()
+                    .progress_chars("#>-"),
+            );
+            pb.set_message("Exécution en cours...");
+        }
 
         for (host_name, host_entry) in hosts.iter() {
-            let pb = progress.lock().unwrap();
-            pb.set_message(format!("Serveur: {}", host_name));
-            drop(pb);
+            {
+                let pb = progress.lock().unwrap();
+                pb.set_message(format!("Serveur: {}", host_name));
+            }
 
-            // Exécuter la commande (suspendre la barre de progression)
             let result = {
                 let pb = progress.lock().unwrap();
                 pb.suspend(|| {
-                    // Utiliser un runtime tokio existant
                     tokio::task::block_in_place(|| {
                         tokio::runtime::Handle::current().block_on(async {
                             self.execute_on_host(command, host_name, host_entry, timeout)
@@ -113,12 +114,15 @@ impl CommandExecutor {
                     let pb = progress.lock().unwrap();
                     pb.suspend(|| {
                         if result.success {
-                            println!("  ✅ {} ({:.2}s)", host_name, result.duration.as_secs_f64());
+                            println!(
+                                "  ✅ {} ({:.2}s)",
+                                host_name,
+                                result.duration.as_secs_f64()
+                            );
                         } else {
                             println!("  ❌ {} - Exit code: {}", host_name, result.exit_code);
                         }
                     });
-                    drop(pb);
                     results.push(result);
                 }
                 Err(e) => {
@@ -126,23 +130,26 @@ impl CommandExecutor {
                     pb.suspend(|| {
                         println!("  ❌ {} - Erreur: {}", host_name, e);
                     });
-                    drop(pb);
                 }
             }
 
-            let pb = progress.lock().unwrap();
-            pb.inc(1);
-            drop(pb);
+            {
+                let pb = progress.lock().unwrap();
+                pb.inc(1);
+            }
         }
 
-        let pb = progress.lock().unwrap();
-        pb.finish_with_message(format!("✅ Terminé ({} serveurs)", hosts.len()));
-        drop(pb);
+        {
+            let pb = progress.lock().unwrap();
+            pb.finish_with_message(format!("✅ Terminé ({} serveurs)", hosts.len()));
+        }
 
+        self.pool.close_all().await;
         Ok(results)
     }
 
-    /// Exécution parallèle (plusieurs serveurs simultanément)
+    /// Exécution parallèle avec pool de connexions partagé.
+    /// Le clone du pool est cheap (Arc interne) — toutes les tâches partagent le même état.
     async fn execute_parallel(
         &self,
         command: &str,
@@ -155,22 +162,19 @@ impl CommandExecutor {
             let cmd = command.to_owned();
             let name = host_name.clone();
             let entry = (*host_entry).clone();
-            let cache = self.passphrase_cache.clone();
+            let pool = self.pool.clone(); // Arc clone — partagé, pas copié
 
             async move {
-                let executor = CommandExecutor {
-                    passphrase_cache: cache,
-                };
+                let executor = CommandExecutor { pool };
                 executor.execute_on_host(&cmd, &name, &entry, timeout).await
             }
         });
 
         let results: Vec<_> = stream::iter(futures)
-            .buffer_unordered(10) // Max 10 connexions simultanées
+            .buffer_unordered(10)
             .collect()
             .await;
 
-        // Afficher les résultats au fur et à mesure
         for result in results.iter().flatten() {
             if result.success {
                 println!(
@@ -183,10 +187,13 @@ impl CommandExecutor {
             }
         }
 
+        self.pool.close_all().await;
+
         Ok(results.into_iter().filter_map(Result::ok).collect())
     }
 
-    /// Exécuter une commande sur un seul hôte
+    /// Exécuter une commande sur un hôte via le pool.
+    /// Ne déconnecte PAS — la connexion reste dans le pool pour réutilisation.
     async fn execute_on_host(
         &self,
         command: &str,
@@ -194,28 +201,26 @@ impl CommandExecutor {
         host_entry: &HostEntry,
         timeout: Duration,
     ) -> Result<CommandResult> {
-        log::debug!("Début d'exécution sur {} ({})", host_name, host_entry.alias);
-        let start = std::time::Instant::now();
         let (username, host) = Uploader::parse_server_alias(&host_entry.alias)?;
+        let host_key = format!("{}@{}", username, host);
 
-        log::debug!("Connexion SSH à {}@{}", username, host);
-        // Créer le client SSH
-        let mut client = SshClient::new_with_cache(host, username, self.passphrase_cache.clone())?;
-        client.connect_with_timeout(Duration::from_secs(10)).await?;
+        log::debug!("Exécution sur {} via pool", host_key);
+        let start = std::time::Instant::now();
 
-        log::debug!("Exécution de la commande (timeout: {:?})", timeout);
-        // Exécuter la commande
-        let output = client.execute_command(command, timeout).await?;
+        let (client_arc, _permit) = self.pool.acquire(&host_key, username, host).await?;
+        let mut client = client_arc.lock().await;
+
+        let output = match client.execute_command(command, timeout).await {
+            Ok(out) => out,
+            Err(e) => {
+                drop(client);
+                self.pool.invalidate(&host_key);
+                log::warn!("⚠️  Erreur sur {} (connexion invalidée) : {}", host_key, e);
+                return Err(e);
+            }
+        };
+
         let duration = start.elapsed();
-
-        log::debug!(
-            "Commande terminée - Exit: {}, Durée: {:?}",
-            output.exit_code,
-            duration
-        );
-
-        // Déconnecter
-        client.disconnect().await?;
 
         Ok(CommandResult {
             host: host_name.to_string(),
@@ -241,19 +246,13 @@ mod tests {
     #[test]
     fn test_executor_creation() {
         let executor = CommandExecutor::new();
-        assert!(executor
-            .passphrase_cache
-            .get(&std::path::PathBuf::from("test"))
-            .is_none());
+        assert_eq!(executor.pool.active_connections(), 0);
     }
 
     #[test]
     fn test_executor_default() {
         let executor = CommandExecutor::default();
-        assert!(executor
-            .passphrase_cache
-            .get(&std::path::PathBuf::from("test"))
-            .is_none());
+        assert_eq!(executor.pool.active_connections(), 0);
     }
 
     #[test]

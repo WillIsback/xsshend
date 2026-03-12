@@ -2,19 +2,17 @@
 # https://github.com/RustSec/cargo-audit
 
 [advisories]
-# Vulnérabilités connues et acceptées avec justification
+# RUSTSEC-2023-0071 : partiellement mitigé en v0.6.0
+# Voir deny.toml pour l'analyse complète.
+# Mitigation : features = ["aws-lc-rs"] sur russh + recommandation Ed25519
 ignore = [
-    "RUSTSEC-2023-0071",  # rsa crate - Marvin Attack (pas de solution disponible)
+    "RUSTSEC-2023-0071",
 ]
 
 [output]
-# Format de sortie
 format = "terminal"
-# Niveau de verbosité
 quiet = false
-# Montrer les statistiques
 show_tree = true
 
 [yanked]
-# Ignorer les crates yanked (retirées)
 ignore = []

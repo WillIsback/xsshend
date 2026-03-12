@@ -1,0 +1,70 @@
+# Lock file pour agent-issue-triage.md
+# GitHub Agentic Workflows — technical preview
+name: "🤖 Agent — Issue Triage & Weekly Report"
+
+on:
+  issues:
+    types: [opened, reopened]
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  triage:
+    name: Triage issue / Weekly report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Claude Code triage agent
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: "claude-haiku-4-5"
+          timeout_minutes: 8
+          direct_prompt: |
+            ${{ github.event_name == 'issues' && format('
+            You are the xsshend issue triage bot.
+
+            ## New issue to triage
+            - Title: {0}
+            - Body: {1}
+            - Author: {2}
+            - URL: {3}
+
+            ## Your task (from agent-issue-triage.md)
+            1. Classify the issue: bug / enhancement / question / documentation / security / performance / needs-info
+            2. Add appropriate label(s) via GitHub API
+            3. Leave a helpful comment:
+               - For bugs: ask for xsshend version, OS, SSH key type, reproduction steps
+               - For security: acknowledge and point to SECURITY.md (do NOT expose details)
+               - For questions: point to relevant doc section if possible
+               - For needs-info: ask specific clarifying questions
+
+            ## Context
+            xsshend v0.6.0 — Rust CLI for parallel SSH upload/command/grep.
+            Docs: https://willisback.github.io/xsshend/
+            Known: RUSTSEC-2023-0071 mitigated via aws-lc-rs backend.
+            ', github.event.issue.title, github.event.issue.body, github.event.issue.user.login, github.event.issue.html_url)
+            || '
+            You are the xsshend weekly health bot.
+
+            ## Your task
+            Create a weekly status issue summarizing repository health:
+            - Open issues count by label
+            - PRs pending review
+            - Issues with no activity in 7+ days
+            - Any new security advisories relevant to Rust SSH crates
+
+            Keep it concise, add label: report
+            ' }}
+          allowed_tools: "mcp__github__create_issue,mcp__github__create_issue_comment,mcp__github__add_labels_to_issue,mcp__github__list_issues,mcp__github__list_pull_requests"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

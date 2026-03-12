@@ -1,6 +1,6 @@
 [package]
 name = "xsshend"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 description = "Simple CLI tool for uploading files to multiple SSH servers"
 license = "MIT"
@@ -12,7 +12,9 @@ categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
 # SSH & Transferts (Pure Rust - No OpenSSL!)
-russh = "0.54.6"
+# aws-lc-rs : backend crypto constant-time (mitigation RUSTSEC-2023-0071 pour clés RSA)
+# default-features = false : désactive le backend ring (pull rsa crate vulnérable)
+russh = { version = "0.54.6", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "2.1.1"
 
 # Async Runtime
@@ -37,6 +39,7 @@ dirs = "5.0"
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.10"
+dashmap = "6"
 
 [dev-dependencies]
 tempfile = "3.8"
