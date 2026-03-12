@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    - cron: '0 9 * * 1'  # Audit sécurité hebdomadaire
+    - cron: '0 9 * * 1'
   workflow_dispatch:
 
 env:
@@ -17,18 +17,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Job unique : tout en séquence, cache partagé ─────────────────────────
-  quality:
-    name: Format → Lint → Test → Build → Audit
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ÉTAPE 1 — Auto-fix fmt + clippy, puis commit si nécessaire
+  # Si un fix est commité, le job suivant (quality) sera déclenché à nouveau
+  # sur le nouveau SHA propre.
+  # ═══════════════════════════════════════════════════════════════════════════
+  auto-fix:
+    name: 🔧 Auto-fix (fmt + clippy)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Seulement sur les push (pas les PRs d'autres forks, pas les schedules)
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
         with:
+          # Token avec write pour pouvoir pousser le fix
+          token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      # aws-lc-rs (russh backend) requiert cmake + clang + nasm
       - name: System deps (aws-lc-rs)
         run: sudo apt-get update -q && sudo apt-get install -y cmake clang nasm
 
@@ -46,16 +54,81 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: 🎨 Format
+      # ── cargo fmt ──────────────────────────────────────────────────────────
+      - name: 🎨 cargo fmt (auto-fix)
+        run: cargo fmt --all
+
+      # ── cargo clippy --fix ─────────────────────────────────────────────────
+      # --allow-dirty : ok car on est dans un workdir git propre post-checkout
+      # --allow-staged : au cas où fmt a stagé des changements
+      - name: 🔍 cargo clippy --fix
+        run: |
+          cargo clippy --all-targets --all-features --fix --allow-dirty --allow-staged 2>&1 || true
+          # --fix ne couvre pas tous les lints → on vérifie quand même en mode strict après
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      # ── Commit + push si des fichiers ont changé ───────────────────────────
+      - name: 📤 Commit auto-fix si nécessaire
+        run: |
+          git config user.name  "xsshend-bot"
+          git config user.email "bot@xsshend.ci"
+          git diff --quiet && git diff --cached --quiet && {
+            echo "✅ Aucun changement — code déjà propre"
+            exit 0
+          }
+          git add -A
+          git commit -m "style: auto-fix fmt + clippy [skip agent]"
+          git push
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ÉTAPE 2 — Quality gate complet (tests, build, audit)
+  # Ne tourne PAS si auto-fix vient de pousser un commit (le push déclenche
+  # un nouveau run de CI sur le SHA propre — inutile de dupliquer)
+  # ═══════════════════════════════════════════════════════════════════════════
+  quality:
+    name: 🧪 Tests → Build → Audit
+    runs-on: ubuntu-latest
+    # Sur push : attendre que auto-fix ait fini (succès ou skip)
+    # Sur PR : pas d'auto-fix, on vérifie directement
+    needs: [auto-fix]
+    if: |
+      always() &&
+      (needs.auto-fix.result == 'success' || needs.auto-fix.result == 'skipped')
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Si auto-fix a commité, récupérer le SHA propre
+          ref: ${{ github.ref }}
+
+      - name: System deps (aws-lc-rs)
+        run: sudo apt-get update -q && sudo apt-get install -y cmake clang nasm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Vérification finale (le auto-fix devrait garantir que ça passe)
+      - name: 🎨 Vérification fmt
         run: cargo fmt --all -- --check
 
-      - name: 🔍 Clippy
+      - name: 🔍 Vérification clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       - name: 🧪 Tests
         run: cargo test --verbose --all-features
 
-      - name: 🏗️  Build release
+      - name: 🏗️ Build release
         run: cargo build --release --verbose
 
       - name: 📚 Docs
@@ -63,39 +136,30 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-      - name: 🔒 Security audit (cargo-deny)
+      - name: 🔒 Security audit
         run: |
           cargo install cargo-deny --locked
           cargo deny check
 
-      # Auto-format uniquement sur main (push direct — workflow de secours)
-      - name: Check for formatting changes
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        id: fmt
-        run: |
-          cargo fmt --all
-          git diff --quiet && echo "clean=true" >> $GITHUB_OUTPUT || echo "clean=false" >> $GITHUB_OUTPUT
-
-      - name: Auto-commit format fix
-        if: steps.fmt.outputs.clean == 'false'
-        run: |
-          git config user.email "action@github.com"
-          git config user.name "GitHub Actions"
-          git add -A
-          git commit -m "style: auto-format [skip ci]" || true
-          git push
-
-  # ── Build croisé (ubuntu + macos) — déclenché sur main et PRs seulement ──
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ÉTAPE 3 — Build cross-platform (ubuntu + macos)
+  # Seulement sur main et PRs, après quality
+  # ═══════════════════════════════════════════════════════════════════════════
   build-matrix:
-    name: Build (${{ matrix.os }})
+    name: 🏗️ Cross-build (${{ matrix.os }})
+    needs: [quality]
     runs-on: ${{ matrix.os }}
-    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    if: |
+      needs.quality.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: System deps — Linux
         if: runner.os == 'Linux'
