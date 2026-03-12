@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches-ignore: [gh-pages]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 9 * * 1'  # Audit sécurité hebdomadaire
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Job unique : tout en séquence, cache partagé ─────────────────────────
+  quality:
+    name: Format → Lint → Test → Build → Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # aws-lc-rs (russh backend) requiert cmake + clang + nasm
+      - name: System deps (aws-lc-rs)
+        run: sudo apt-get update -q && sudo apt-get install -y cmake clang nasm
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: 🎨 Format
+        run: cargo fmt --all -- --check
+
+      - name: 🔍 Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: 🧪 Tests
+        run: cargo test --verbose --all-features
+
+      - name: 🏗️  Build release
+        run: cargo build --release --verbose
+
+      - name: 📚 Docs
+        run: cargo doc --no-deps --all-features
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: 🔒 Security audit (cargo-deny)
+        run: |
+          cargo install cargo-deny --locked
+          cargo deny check
+
+      # Auto-format uniquement sur main (push direct — workflow de secours)
+      - name: Check for formatting changes
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        id: fmt
+        run: |
+          cargo fmt --all
+          git diff --quiet && echo "clean=true" >> $GITHUB_OUTPUT || echo "clean=false" >> $GITHUB_OUTPUT
+
+      - name: Auto-commit format fix
+        if: steps.fmt.outputs.clean == 'false'
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Actions"
+          git add -A
+          git commit -m "style: auto-format [skip ci]" || true
+          git push
+
+  # ── Build croisé (ubuntu + macos) — déclenché sur main et PRs seulement ──
+  build-matrix:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System deps — Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y cmake clang nasm
+
+      - name: System deps — macOS
+        if: runner.os == 'macOS'
+        run: brew install cmake
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - run: cargo build --release --verbose
+      - run: ./target/release/xsshend --help
