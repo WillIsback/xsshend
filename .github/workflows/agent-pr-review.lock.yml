@@ -9,8 +9,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: read
-  id-token: write
 
 jobs:
   review:
@@ -26,48 +24,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch base branch for diff
-        run: git fetch origin main
-
-      - name: Generate diff summary
-        id: diff
-        run: |
-          DIFF=$(git diff origin/main...HEAD --stat | head -30)
-          echo "diff<<EOF" >> $GITHUB_OUTPUT
-          echo "$DIFF" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-          # Lire version depuis Cargo.toml (source unique — main.rs utilise env!("CARGO_PKG_VERSION"))
-          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | grep -oP '"\K[^"]+')
-          echo "cargo_ver=${CARGO_VER}" >> $GITHUB_OUTPUT
-
-      - name: Run Claude Code review agent
-        uses: anthropics/claude-code-action@beta
+      - name: Run Copilot code review
+        uses: github/copilot-code-review@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: "claude-sonnet-4-5"
-          timeout_minutes: 8
-          direct_prompt: |
-            You are the xsshend PR stability bot.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          instructions: |
+            You are reviewing a PR for xsshend, a Rust SSH file-upload CLI tool.
+            The version in Cargo.toml is the single source of truth (main.rs uses env!("CARGO_PKG_VERSION")).
 
-            ## PR info
-            - Title: ${{ github.event.pull_request.title }}
-            - Author: ${{ github.event.pull_request.user.login }}
-            - Branch: ${{ github.event.pull_request.head.ref }} → main
-            - Diff stat: ${{ steps.diff.outputs.diff }}
-            - Cargo.toml version: ${{ steps.diff.outputs.cargo_ver }} (single source of truth — main.rs uses env!("CARGO_PKG_VERSION"))
+            Check each of the following and report ✅ or ❌:
+            - Version bump: Cargo.toml version was bumped and matches a new CHANGELOG entry
+            - CHANGELOG: a new entry exists for this change
+            - New dependencies: any new crate in Cargo.toml is justified and has no obvious security issues
+            - Breaking changes: if the public CLI interface changed, it is documented
+            - Test coverage: new modules or significant new logic have accompanying tests
+            - CI build deps: if aws-lc-rs or similar native deps were added, cmake/clang are installed in CI
+            - Doc comments: public functions and structs have /// doc comments
 
-            ## Your task (from agent-pr-review.md)
-            Check: version bump consistency, CHANGELOG entry, new dependencies,
-            breaking changes, test coverage for new modules, build deps in CI (cmake/clang for aws-lc-rs),
-            doc comments on public items.
-
-            Read the relevant changed files, then post a concise review comment (max 20 lines):
-            - ✅/❌ for each check
-            - Overall: READY TO MERGE or NEEDS CHANGES
-            - If NEEDS CHANGES: specific action items
-
-            Do NOT use GitHub review approval/rejection — comment only.
-          allowed_tools: "Read,Bash,mcp__github__create_pull_request_review_comment,mcp__github__create_issue_comment"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            End with a one-line verdict: READY TO MERGE or NEEDS CHANGES.
+            If NEEDS CHANGES, list the specific action items required.
