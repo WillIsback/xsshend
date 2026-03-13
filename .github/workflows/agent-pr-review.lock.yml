@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  issues: read
 
 jobs:
   review:
@@ -28,48 +27,110 @@ jobs:
       - name: Fetch base branch for diff
         run: git fetch origin main
 
-      - name: Generate diff summary
-        id: diff
-        run: |
-          DIFF=$(git diff origin/main...HEAD --stat | head -30)
-          echo "diff<<EOF" >> $GITHUB_OUTPUT
-          echo "$DIFF" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
-          # Lire version Cargo.toml
-          CARGO_VER=$(grep '^version' Cargo.toml | head -1 | grep -oP '"\K[^"]+')
-          MAIN_VER=$(grep '\.version(' src/main.rs | grep -oP '"\K[^"]+')
-          echo "cargo_ver=$CARGO_VER" >> $GITHUB_OUTPUT
-          echo "main_ver=$MAIN_VER" >> $GITHUB_OUTPUT
-
-      - name: Run Claude Code review agent
-        uses: anthropics/claude-code-action@beta
+      - name: Run stability checks and post review comment
+        uses: actions/github-script@v7
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: "claude-sonnet-4-5"
-          timeout_minutes: 8
-          direct_prompt: |
-            You are the xsshend PR stability bot.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { execSync } = require('child_process');
 
-            ## PR info
-            - Title: ${{ github.event.pull_request.title }}
-            - Author: ${{ github.event.pull_request.user.login }}
-            - Branch: ${{ github.event.pull_request.head.ref }} → main
-            - Diff stat: ${{ steps.diff.outputs.diff }}
-            - Cargo.toml version: ${{ steps.diff.outputs.cargo_ver }}
-            - main.rs version: ${{ steps.diff.outputs.main_ver }}
+            // ── helpers ──────────────────────────────────────────────────────
+            const run = (cmd) => { try { return execSync(cmd, { encoding: 'utf8' }); } catch { return ''; } };
+            const check = (ok, label) => `${ok ? '✅' : '❌'} ${label}`;
 
-            ## Your task (from agent-pr-review.md)
-            Check: version bump consistency, CHANGELOG entry, new dependencies,
-            breaking changes, test coverage for new modules, build deps in CI (cmake/clang for aws-lc-rs),
-            doc comments on public items.
+            // ── gather data ──────────────────────────────────────────────────
+            const changedFiles = run('git diff --name-only origin/main...HEAD').trim().split('\n').filter(Boolean);
+            const diffStat     = run('git diff origin/main...HEAD --stat | head -30').trim();
+            const cargoToml    = run('cat Cargo.toml');
+            const cargoVer     = (cargoToml.match(/^version\s*=\s*"([^"]+)"/m) || [])[1] || 'unknown';
+            const changelog    = run('cat CHANGELOG.md 2>/dev/null || cat CHANGES.md 2>/dev/null || echo ""');
+            const diffText     = run('git diff origin/main...HEAD -- Cargo.toml');
 
-            Read the relevant changed files, then post a concise review comment (max 20 lines):
-            - ✅/❌ for each check
-            - Overall: READY TO MERGE or NEEDS CHANGES
-            - If NEEDS CHANGES: specific action items
+            // ── checks ───────────────────────────────────────────────────────
+            // 1. Version bump: Cargo.toml was modified and contains a version line change
+            const cargoChanged  = changedFiles.includes('Cargo.toml');
+            const verBumpInDiff = /^\+version\s*=/m.test(diffText);
+            const versionBump   = cargoChanged && verBumpInDiff;
 
-            Do NOT use GitHub review approval/rejection — comment only.
-          allowed_tools: "Read,Bash,mcp__github__create_pull_request_review_comment,mcp__github__create_issue_comment"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            // 2. CHANGELOG entry matches the current version
+            const changelogEntry = changelog.includes(cargoVer);
+
+            // 3. New crates in Cargo.toml
+            const newDeps = run('git diff origin/main...HEAD -- Cargo.toml')
+              .split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++') && /^\+[a-z_-]/.test(l));
+            const depsOk = true; // flag only — reviewer must assess security manually
+
+            // 4. Breaking changes: look for changed CLI structs/enums in src/main.rs or src/cli.rs
+            const cliFiles   = ['src/main.rs', 'src/cli.rs', 'src/config/mod.rs'];
+            const cliChanged = changedFiles.some(f => cliFiles.includes(f));
+            const cliBreaking = !cliChanged; // no CLI files changed → no breaking changes
+
+            // 5. Test coverage: new .rs files have a corresponding test or tests/ entry
+            const newRsFiles  = changedFiles.filter(f => f.endsWith('.rs') && !f.startsWith('tests/'));
+            const testFiles   = changedFiles.filter(f => f.startsWith('tests/') || f.includes('_test') || f.includes('test_'));
+            const testCovOk   = newRsFiles.length === 0 || testFiles.length > 0;
+
+            // 6. CI cmake/clang: if aws-lc-rs added, CI workflow must install them
+            const awsLcAdded  = diffText.includes('aws-lc-rs');
+            const ciFiles     = changedFiles.filter(f => f.startsWith('.github/workflows/'));
+            const ciDepsOk    = !awsLcAdded || ciFiles.some(f =>
+              run(`cat ${f}`).includes('cmake') || run(`cat ${f}`).includes('clang'));
+
+            // 7. Doc comments: changed public items have at least some /// in the diff
+            const pubDiff    = run('git diff origin/main...HEAD -- "src/*.rs" "src/**/*.rs"');
+            const pubAdded   = /^\+pub (fn|struct|enum|trait)/.test(pubDiff);
+            const docPresent = !pubAdded || /^\+\s*\/\/\//.test(pubDiff);
+
+            // ── summary ───────────────────────────────────────────────────────
+            const allOk = versionBump && changelogEntry && cliBreaking && testCovOk && ciDepsOk && docPresent;
+
+            const newDepsList = newDeps.length
+              ? `\n  New crates detected (manual security review advised):\n${newDeps.map(d => `  \`${d.slice(1).trim()}\``).join('\n')}`
+              : '';
+
+            const body = [
+              `## 🤖 PR Stability Review — \`${context.payload.pull_request.head.ref}\` → \`main\``,
+              '',
+              `**Cargo.toml version:** \`${cargoVer}\``,
+              '',
+              '| Check | Result |',
+              '|-------|--------|',
+              `| Version bump (Cargo.toml) | ${check(versionBump, versionBump ? 'bumped' : 'not bumped — update \`version\` in Cargo.toml')} |`,
+              `| CHANGELOG entry for \`${cargoVer}\` | ${check(changelogEntry, changelogEntry ? 'present' : 'missing — add entry to CHANGELOG.md')} |`,
+              `| New dependencies | ${check(depsOk, newDeps.length ? `${newDeps.length} new crate(s) added${newDepsList}` : 'none added')} |`,
+              `| Breaking CLI changes documented | ${check(cliBreaking, cliBreaking ? 'no CLI files changed' : 'CLI changed — verify docs/CHANGELOG')} |`,
+              `| Test coverage for new modules | ${check(testCovOk, testCovOk ? 'ok' : 'new .rs files with no accompanying tests')} |`,
+              `| CI build deps (cmake/clang) | ${check(ciDepsOk, ciDepsOk ? 'ok' : 'aws-lc-rs added but cmake/clang not found in CI workflow')} |`,
+              `| Doc comments on public items | ${check(docPresent, docPresent ? 'ok' : 'new \`pub\` items missing \`///\` doc comments')} |`,
+              '',
+              diffStat ? `<details><summary>Diff stat</summary>\n\n\`\`\`\n${diffStat}\n\`\`\`\n</details>` : '',
+              '',
+              allOk
+                ? '### ✅ READY TO MERGE'
+                : '### ❌ NEEDS CHANGES\n\nAddress the ❌ items above before merging.',
+            ].join('\n');
+
+            // Post (or update) the review comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+            const existing = comments.find(c =>
+              c.user.login === 'github-actions[bot]' && c.body.startsWith('## 🤖 PR Stability Review'));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner:      context.repo.owner,
+                repo:       context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner:        context.repo.owner,
+                repo:         context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+            }

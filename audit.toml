@@ -2,12 +2,7 @@
 # https://github.com/RustSec/cargo-audit
 
 [advisories]
-# RUSTSEC-2023-0071 : partiellement mitigé en v0.6.0
-# Voir deny.toml pour l'analyse complète.
-# Mitigation : features = ["aws-lc-rs"] sur russh + recommandation Ed25519
-ignore = [
-    "RUSTSEC-2023-0071",
-]
+ignore = []
 
 [output]
 format = "terminal"

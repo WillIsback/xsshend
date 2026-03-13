@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod config;
 mod core;
@@ -14,7 +14,7 @@ use core::uploader::Uploader;
 /// Outil Rust de téléversement multi-SSH avec mode interactif
 #[derive(Parser)]
 #[command(name = "xsshend")]
-#[command(version = "0.6.0")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Téléverse des fichiers vers plusieurs serveurs SSH")]
 struct Cli {
     #[command(subcommand)]
@@ -339,8 +339,11 @@ async fn handle_grep(args: GrepArgs) -> Result<()> {
     println!("🔍 xsshend grep - Recherche dans les logs distants");
 
     let config = HostsConfig::load()?;
-    let target_hosts =
-        config.filter_hosts(args.env.as_ref(), args.region.as_ref(), args.server_type.as_ref());
+    let target_hosts = config.filter_hosts(
+        args.env.as_ref(),
+        args.region.as_ref(),
+        args.server_type.as_ref(),
+    );
 
     if target_hosts.is_empty() {
         anyhow::bail!("❌ Aucun serveur trouvé avec les critères spécifiés");
@@ -351,7 +354,11 @@ async fn handle_grep(args: GrepArgs) -> Result<()> {
         target_hosts.len(),
         args.pattern,
         args.log_path,
-        if args.first_match { " | 🏁 first-match" } else { "" }
+        if args.first_match {
+            " | 🏁 first-match"
+        } else {
+            ""
+        }
     );
 
     if !args.yes && !args.non_interactive {
@@ -398,7 +405,10 @@ async fn handle_grep(args: GrepArgs) -> Result<()> {
     let not_found: Vec<_> = results.iter().filter(|r| !r.found()).collect();
 
     if found.is_empty() {
-        println!("🔍 Pattern '{}' non trouvé sur aucun serveur.", args.pattern);
+        println!(
+            "🔍 Pattern '{}' non trouvé sur aucun serveur.",
+            args.pattern
+        );
         if !not_found.is_empty() {
             println!(
                 "   (vérifié sur {} serveur(s) : {})",
@@ -498,14 +508,17 @@ async fn handle_command_execution(args: CommandArgs) -> Result<()> {
         }
 
         // Région
-        if env.is_some() && should_prompt(&region, args.non_interactive) {
-            region = prompts::prompt_region(&config, env.as_ref().unwrap())?;
+        if let Some(env_val) = env.as_ref() {
+            if should_prompt(&region, args.non_interactive) {
+                region = prompts::prompt_region(&config, env_val)?;
+            }
         }
 
         // Type de serveur
-        if env.is_some() && should_prompt(&server_type, args.non_interactive) {
-            server_type =
-                prompts::prompt_server_type(&config, env.as_ref().unwrap(), region.as_deref())?;
+        if let Some(env_val) = env.as_ref() {
+            if should_prompt(&server_type, args.non_interactive) {
+                server_type = prompts::prompt_server_type(&config, env_val, region.as_deref())?;
+            }
         }
     } else if args.non_interactive && inline_cmd.is_none() && script_path.is_none() {
         // Mode explicitement non-interactif: valider les arguments
@@ -679,18 +692,21 @@ async fn handle_upload_command(args: UploadArgs) -> Result<()> {
         }
 
         // Région
-        if env.is_some() && should_prompt(&region, args.non_interactive) {
-            region = prompts::prompt_region(&config, env.as_ref().unwrap())?;
+        if let Some(env_val) = env.as_ref() {
+            if should_prompt(&region, args.non_interactive) {
+                region = prompts::prompt_region(&config, env_val)?;
+            }
         }
 
         // Type de serveur
-        if env.is_some() && should_prompt(&server_type, args.non_interactive) {
-            server_type =
-                prompts::prompt_server_type(&config, env.as_ref().unwrap(), region.as_deref())?;
+        if let Some(env_val) = env.as_ref() {
+            if should_prompt(&server_type, args.non_interactive) {
+                server_type = prompts::prompt_server_type(&config, env_val, region.as_deref())?;
+            }
         }
 
         // Destination (si default)
-        if dest == PathBuf::from("/tmp/") {
+        if dest == Path::new("/tmp/") {
             let new_dest = prompts::prompt_destination("/tmp/")?;
             dest = new_dest;
         }

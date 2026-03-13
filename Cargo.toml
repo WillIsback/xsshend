@@ -14,7 +14,7 @@ categories = ["command-line-utilities", "network-programming"]
 # SSH & Transferts (Pure Rust - No OpenSSL!)
 # aws-lc-rs : backend crypto constant-time (mitigation RUSTSEC-2023-0071 pour clés RSA)
 # default-features = false : désactive le backend ring (pull rsa crate vulnérable)
-russh = { version = "0.54.6", default-features = false, features = ["aws-lc-rs"] }
+russh = { version = "0.57", default-features = false, features = ["aws-lc-rs"] }
 russh-sftp = "2.1.1"
 
 # Async Runtime
@@ -23,7 +23,7 @@ async-trait = "0.1"
 futures = "0.3"
 
 # Interface utilisateur simple
-indicatif = "0.17"
+indicatif = "0.18"
 dialoguer = "0.12"
 console = "0.16.1"
 

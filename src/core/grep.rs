@@ -45,9 +45,11 @@ impl GrepExecutor {
             return Ok(Vec::new());
         }
         if first_match {
-            self.grep_first_match(pattern, log_path, hosts, context_lines, timeout).await
+            self.grep_first_match(pattern, log_path, hosts, context_lines, timeout)
+                .await
         } else {
-            self.grep_all(pattern, log_path, hosts, context_lines, timeout).await
+            self.grep_all(pattern, log_path, hosts, context_lines, timeout)
+                .await
         }
     }
 
@@ -92,7 +94,12 @@ impl GrepExecutor {
             0
         };
 
-        log::debug!("Grep {} : {} matches (exit {})", host_name, match_count, exit_code);
+        log::debug!(
+            "Grep {} : {} matches (exit {})",
+            host_name,
+            match_count,
+            exit_code
+        );
 
         Ok(GrepResult {
             host: host_name.to_string(),
@@ -130,14 +137,13 @@ impl GrepExecutor {
 
             async move {
                 let executor = GrepExecutor { pool };
-                executor.execute_grep_on_host(&name, &entry, &cmd, timeout).await
+                executor
+                    .execute_grep_on_host(&name, &entry, &cmd, timeout)
+                    .await
             }
         });
 
-        let results: Vec<_> = stream::iter(futures)
-            .buffer_unordered(10)
-            .collect()
-            .await;
+        let results: Vec<_> = stream::iter(futures).buffer_unordered(10).collect().await;
 
         let mut grep_results: Vec<GrepResult> =
             results.into_iter().filter_map(|r| r.ok()).collect();
@@ -158,8 +164,7 @@ impl GrepExecutor {
         timeout: Duration,
     ) -> Result<Vec<GrepResult>> {
         let command = Self::build_grep_command(pattern, log_path, context_lines);
-        let (result_tx, mut result_rx) =
-            tokio::sync::mpsc::channel::<GrepResult>(hosts.len());
+        let (result_tx, mut result_rx) = tokio::sync::mpsc::channel::<GrepResult>(hosts.len());
         let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
         let stop_tx = Arc::new(stop_tx);
 
@@ -244,13 +249,23 @@ mod tests {
 
     #[test]
     fn test_grep_result_found() {
-        let r = GrepResult { host: "h".into(), matches: vec!["x".into()], match_count: 1, exit_code: 0 };
+        let r = GrepResult {
+            host: "h".into(),
+            matches: vec!["x".into()],
+            match_count: 1,
+            exit_code: 0,
+        };
         assert!(r.found());
     }
 
     #[test]
     fn test_grep_result_not_found() {
-        let r = GrepResult { host: "h".into(), matches: vec![], match_count: 0, exit_code: 1 };
+        let r = GrepResult {
+            host: "h".into(),
+            matches: vec![],
+            match_count: 0,
+            exit_code: 1,
+        };
         assert!(!r.found());
     }
 }
