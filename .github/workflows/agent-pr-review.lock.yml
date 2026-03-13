@@ -36,11 +36,9 @@ jobs:
           echo "$DIFF" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-          # Lire version Cargo.toml
+          # Lire version depuis Cargo.toml (source unique — main.rs utilise env!("CARGO_PKG_VERSION"))
           CARGO_VER=$(grep '^version' Cargo.toml | head -1 | grep -oP '"\K[^"]+')
-          MAIN_VER=$(grep '\.version(' src/main.rs | grep -oP '"\K[^"]+')
-          echo "cargo_ver=$CARGO_VER" >> $GITHUB_OUTPUT
-          echo "main_ver=$MAIN_VER" >> $GITHUB_OUTPUT
+          echo "cargo_ver=${CARGO_VER}" >> $GITHUB_OUTPUT
 
       - name: Run Claude Code review agent
         uses: anthropics/claude-code-action@beta
@@ -56,8 +54,7 @@ jobs:
             - Author: ${{ github.event.pull_request.user.login }}
             - Branch: ${{ github.event.pull_request.head.ref }} → main
             - Diff stat: ${{ steps.diff.outputs.diff }}
-            - Cargo.toml version: ${{ steps.diff.outputs.cargo_ver }}
-            - main.rs version: ${{ steps.diff.outputs.main_ver }}
+            - Cargo.toml version: ${{ steps.diff.outputs.cargo_ver }} (single source of truth — main.rs uses env!("CARGO_PKG_VERSION"))
 
             ## Your task (from agent-pr-review.md)
             Check: version bump consistency, CHANGELOG entry, new dependencies,
